@@ -16,10 +16,13 @@ rem actual caption file; never retype it.
 if "%~1"=="" (
     echo Usage: 05_validate_gating.cmd --lora ^<lora.safetensors^> --trigger ^<word^> [flags]
     echo Optional: --prompts-file battery.json  ^(out-of-domain prompt battery^)
+    pause
     exit /b 1
 )
 
-call "%~dp0_env.cmd" || exit /b 1
+call "%~dp0_env.cmd" || (pause & exit /b 1)
 
 "%VENV_PY%" "%REPO_ROOT%\course_lora_kit\scripts\test_lora_gating_measure.py" %*
-exit /b %errorlevel%
+set "EC=%errorlevel%"
+pause
+exit /b %EC%

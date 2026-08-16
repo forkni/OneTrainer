@@ -16,10 +16,13 @@ rem as long as --reference-dir is the same folder.
 if "%~1"=="" (
     echo Usage: 05_validate_identity_score.cmd --render LABEL=^<file^|folder^|glob^> --reference-dir ^<held_out_images^> [flags]
     echo Repeatable: --render A2="out\A2_*.png" --render A4="out\A4_*.png"
+    pause
     exit /b 1
 )
 
-call "%~dp0_env.cmd" || exit /b 1
+call "%~dp0_env.cmd" || (pause & exit /b 1)
 
 "%VENV_PY%" "%REPO_ROOT%\course_lora_kit\scripts\test_lora_identity_score.py" %*
-exit /b %errorlevel%
+set "EC=%errorlevel%"
+pause
+exit /b %EC%

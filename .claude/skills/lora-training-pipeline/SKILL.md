@@ -1,6 +1,10 @@
 ---
 name: lora-training-pipeline
 description: Guide the user through training, screening, and validating their own LoRA with OneTrainer via the course_lora_kit pipeline (StreamDiffusionTD course, Appendix D). Use when the user wants to prepare a dataset, caption it, train a style or character LoRA, screen checkpoints, or measure identity/gating.
+compatibility: Windows (the phase wrappers are .cmd scripts). Requires the OneTrainer venv (run install.bat once first) and an NVIDIA GPU for the training and render-validation phases; phases 1 and 4 run on CPU.
+metadata:
+  author: StreamDiffusionTD course
+  version: 1.1.0
 ---
 
 # LoRA training pipeline (StreamDiffusionTD course kit)
@@ -44,6 +48,27 @@ Cross-cutting references:
   recipe.
 - `references/cli-cheatsheet.md` — `train.py` / `generate_captions.py` flags and the
   `--config-value` override syntax.
+
+## Examples
+
+- *"I want to train a LoRA of my own character"* → start at phase 0, then walk 1→5 in
+  order with `03_train_character_sdxl.cmd`; load `contrastive-concept-gating.md` before
+  the captioning phase so the trigger-free concept copy is planned from the start.
+- *"My checkpoints all look purple/magenta"* → load `round1-case-study.md` and compare
+  against the colour-collapse signature before changing any dials.
+- *"Which checkpoint should I use?"* → run phase 4 on the save folder, then confirm the
+  shortlisted steps with `05_validate_sweep.cmd` (norms alone can't see colour casts).
+
+## Troubleshooting
+
+- Any `.cmd` script prints "venv not found" → OneTrainer isn't installed yet; run
+  `install.bat` from the repo root and re-run `00_verify_setup.cmd`.
+- Renders show a magenta/colour cast that worsens with checkpoint step → the measured
+  collapse signature; see `round1-case-study.md` (the fix is the loss/noise dials, not
+  the LoRA weight).
+- Validation renders ignore the LoRA entirely → the component may have failed to load it
+  and silently fallen back to the base model; check the log for a LoRA-load ERROR before
+  trusting any numbers from that batch.
 
 ## Guiding style
 

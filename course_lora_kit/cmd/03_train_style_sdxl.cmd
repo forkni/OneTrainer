@@ -6,7 +6,7 @@ rem plus the course overlay: epochs sized for the measured ~40-60 views-per-imag
 rem window, intermediate saves every 100 steps, warmup pinned explicitly.
 rem Extra args are forwarded (e.g. --config-value epochs=30).
 
-call "%~dp0_env.cmd" || exit /b 1
+call "%~dp0_env.cmd" || (pause & exit /b 1)
 
 set "CONCEPTS=%REPO_ROOT%\training_concepts\style_concepts.json"
 if not exist "%CONCEPTS%" (
@@ -21,6 +21,7 @@ to training_concepts\style_concepts.json
     echo      ^(PRIOR_PREDICTION^) points at a COPY of the same images whose
     echo      captions never mention the trigger.
     echo See course_lora_kit\configs\README.md for why both concepts exist.
+    pause
     exit /b 1
 )
 
@@ -35,4 +36,5 @@ if "%EC%"=="0" (
     echo Intermediate checkpoints: workspace\style_sdxl\save\
     echo Next: 04_checkpoint_screen.cmd workspace\style_sdxl\save
 )
+pause
 exit /b %EC%

@@ -19,7 +19,9 @@ install.bat
 course_lora_kit\cmd\00_verify_setup.cmd
 ```
 
-Then work through the phases. Every script prints usage when run without arguments.
+Then work through the phases. Every script prints usage when run without arguments, and
+can be run from a terminal or double-clicked in Explorer — the window pauses at the end
+so you can read the output.
 
 ## The pipeline
 

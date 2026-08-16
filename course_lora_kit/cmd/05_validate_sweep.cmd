@@ -15,10 +15,13 @@ rem filename or reuse someone else's number.
 if "%~1"=="" (
     echo Usage: 05_validate_sweep.cmd --ckpt-dir ^<save_dir^> --final ^<final.safetensors^> --trigger ^<word^> --final-step ^<steps^> [flags]
     echo Example: 05_validate_sweep.cmd --ckpt-dir workspace\character_sdxl\save --final models\lora_character_sdxl.safetensors --trigger mychar --final-step 1188
+    pause
     exit /b 1
 )
 
-call "%~dp0_env.cmd" || exit /b 1
+call "%~dp0_env.cmd" || (pause & exit /b 1)
 
 "%VENV_PY%" "%REPO_ROOT%\course_lora_kit\scripts\test_lora_checkpoint_sweep.py" %*
-exit /b %errorlevel%
+set "EC=%errorlevel%"
+pause
+exit /b %EC%

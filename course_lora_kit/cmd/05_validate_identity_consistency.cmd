@@ -18,10 +18,13 @@ if "%~1"=="" (
     echo Usage: 05_validate_identity_consistency.cmd --lora LABEL=^<path^> --reference-dir ^<held_out_images^> [flags]
     echo Repeatable: --lora A2=a.safetensors --lora A4=b.safetensors  ^(LABEL=none for a no-LoRA baseline^)
     echo Per-label scale: --lora-scale LABEL=0.0
+    pause
     exit /b 1
 )
 
-call "%~dp0_env.cmd" || exit /b 1
+call "%~dp0_env.cmd" || (pause & exit /b 1)
 
 "%VENV_PY%" "%REPO_ROOT%\course_lora_kit\scripts\test_lora_identity_consistency.py" %*
-exit /b %errorlevel%
+set "EC=%errorlevel%"
+pause
+exit /b %EC%

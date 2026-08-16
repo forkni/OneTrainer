@@ -11,10 +11,11 @@ rem illustration sources. Pass BLIP for natural-language captions (photo sources
 
 if "%~1"=="" (
     echo Usage: 02_caption_auto.cmd ^<image_folder^> [BLIP ^| BLIP2 ^| WD14_VIT_2]
+    pause
     exit /b 1
 )
 
-call "%~dp0_env.cmd" || exit /b 1
+call "%~dp0_env.cmd" || (pause & exit /b 1)
 
 set "MODEL=%~2"
 if not defined MODEL set "MODEL=WD14_VIT_2"
@@ -32,7 +33,8 @@ echo   and a space -- the captioners concatenate it with no separator.)
 echo.
 
 "%VENV_PY%" "%REPO_ROOT%\scripts\generate_captions.py" --model %MODEL% --sample-dir "%~1" --mode fill --include-subdirectories
-if errorlevel 1 exit /b %errorlevel%
+set "EC=%errorlevel%"
+if not "%EC%"=="0" (pause & exit /b %EC%)
 
 echo.
 echo [course_lora_kit] Done. Now do the by-hand pass in a text editor -- it is
@@ -43,4 +45,5 @@ echo     DELETE the permanent ones (hair colour, eye colour) -- what you don't
 echo     caption is what binds to the trigger
 echo   - make a copy of the folder with trigger-free captions for the
 echo     contrastive concept (phase 3 checks for it)
+pause
 exit /b 0

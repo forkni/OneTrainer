@@ -16,10 +16,13 @@ if "%~1"=="" (
     echo Screens a training folder for outliers ^(tone, sharpness, saturation^),
     echo undersized images, letterbox/pillarbox borders, and subfolder imbalance.
     echo See course_lora_kit\README.md, phase 1.
+    pause
     exit /b 1
 )
 
-call "%~dp0_env.cmd" || exit /b 1
+call "%~dp0_env.cmd" || (pause & exit /b 1)
 
 "%VENV_PY%" "%REPO_ROOT%\course_lora_kit\scripts\dataset_hygiene_profiler.py" --recursive --min-side 1024 %*
-exit /b %errorlevel%
+set "EC=%errorlevel%"
+pause
+exit /b %EC%

@@ -14,10 +14,13 @@ rem one-letter mismatch silently invalidates the whole batch.
 if "%~1"=="" (
     echo Usage: 05_validate_grid.cmd --lora ^<lora.safetensors^> --trigger ^<word^> [flags]
     echo Optional: --prompts-file battery.json  ^(runs the 2x2 once per prompt^)
+    pause
     exit /b 1
 )
 
-call "%~dp0_env.cmd" || exit /b 1
+call "%~dp0_env.cmd" || (pause & exit /b 1)
 
 "%VENV_PY%" "%REPO_ROOT%\course_lora_kit\scripts\test_lora_grid_sdxl_base.py" %*
-exit /b %errorlevel%
+set "EC=%errorlevel%"
+pause
+exit /b %EC%

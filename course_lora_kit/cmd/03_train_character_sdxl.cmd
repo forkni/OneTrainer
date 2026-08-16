@@ -9,7 +9,7 @@ rem overlay only overrides what the recipe changes. Extra args are forwarded, so
 rem one-off tweaks work without editing the config:
 rem   03_train_character_sdxl.cmd --config-value epochs=30
 
-call "%~dp0_env.cmd" || exit /b 1
+call "%~dp0_env.cmd" || (pause & exit /b 1)
 
 set "CONCEPTS=%REPO_ROOT%\training_concepts\character_concepts.json"
 if not exist "%CONCEPTS%" (
@@ -24,6 +24,7 @@ to training_concepts\character_concepts.json
     echo      ^(PRIOR_PREDICTION^) points at a COPY of the same images whose
     echo      captions never mention the trigger.
     echo See course_lora_kit\configs\README.md for why both concepts exist.
+    pause
     exit /b 1
 )
 
@@ -38,4 +39,5 @@ if "%EC%"=="0" (
     echo Intermediate checkpoints: workspace\character_sdxl\save\
     echo Next: 04_checkpoint_screen.cmd workspace\character_sdxl\save
 )
+pause
 exit /b %EC%

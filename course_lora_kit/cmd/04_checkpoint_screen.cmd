@@ -14,10 +14,13 @@ rem scale they were calibrated on (the script prints the caveat).
 if "%~1"=="" (
     echo Usage: 04_checkpoint_screen.cmd ^<checkpoint_dir_or_file^> [more dirs] [--json out.json]
     echo Example: 04_checkpoint_screen.cmd workspace\character_sdxl\save
+    pause
     exit /b 1
 )
 
-call "%~dp0_env.cmd" || exit /b 1
+call "%~dp0_env.cmd" || (pause & exit /b 1)
 
 "%VENV_PY%" "%REPO_ROOT%\course_lora_kit\scripts\checkpoint_norm_analyzer.py" %*
-exit /b %errorlevel%
+set "EC=%errorlevel%"
+pause
+exit /b %EC%

@@ -3,7 +3,7 @@ setlocal
 rem Phase 0 -- verify the OneTrainer install before touching a dataset:
 rem venv present, torch imports, CUDA visible, and the kit's own files in place.
 
-call "%~dp0_env.cmd" || exit /b 1
+call "%~dp0_env.cmd" || (pause & exit /b 1)
 
 echo [course_lora_kit] repo root: %REPO_ROOT%
 echo [course_lora_kit] python:    %VENV_PY%
@@ -15,6 +15,7 @@ if errorlevel 1 (
     echo.
     echo [course_lora_kit] torch failed to import or crashed -- the venv is broken
     echo or half-installed. Re-run install.bat and check its output.
+    pause
     exit /b 1
 )
 
@@ -33,8 +34,10 @@ for %%F in (
 if defined MISSING (
     echo [course_lora_kit] The checkout is incomplete -- are you on the
     echo course/lora-pipeline branch of the course fork?
+    pause
     exit /b 1
 )
 
 echo [course_lora_kit] Setup looks good. Next: 01_dataset_hygiene.cmd ^<your_image_folder^>
+pause
 exit /b 0
