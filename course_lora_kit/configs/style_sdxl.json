@@ -1,0 +1,12 @@
+{
+    "workspace_dir": "workspace/style_sdxl",
+    "cache_dir": "workspace/style_sdxl/cache",
+    "output_model_destination": "models/lora_style_sdxl.safetensors",
+    "concept_file_name": "training_concepts/style_concepts.json",
+    "samples": [],
+    "learning_rate_warmup_steps": 200.0,
+    "epochs": 50,
+    "save_every": 100,
+    "save_every_unit": "STEP",
+    "backup_after_unit": "NEVER"
+}

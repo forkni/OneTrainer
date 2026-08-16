@@ -1,0 +1,3 @@
+# run artifacts from the validation scripts (each defaults --output-dir to
+# outputs/<script-name>/ next to the script)
+scripts/outputs/
