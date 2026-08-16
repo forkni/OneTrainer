@@ -1,0 +1,2 @@
+# cmd.exe requires CRLF: goto/call label scanning silently fails on LF-only batch files
+*.cmd text eol=crlf

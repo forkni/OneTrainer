@@ -25,6 +25,8 @@ pull them from the reference files; everything in them is backed by measured run
 - Training runs on SDXL **base** 1.0 (or SD1.5), never on a turbo/distilled checkpoint —
   training directly on the sprinter breaks its few-step behavior.
 - Commands run from the repo root; the `.cmd` scripts handle venv and `HF_HOME`.
+  Run with arguments from a terminal, or double-click with no arguments — the scripts
+  then prompt interactively for paths and options.
 
 ## Phases
 

@@ -19,9 +19,11 @@ install.bat
 course_lora_kit\cmd\00_verify_setup.cmd
 ```
 
-Then work through the phases. Every script prints usage when run without arguments, and
-can be run from a terminal or double-clicked in Explorer — the window pauses at the end
-so you can read the output.
+Then work through the phases. Every script works two ways: run it from a terminal with
+arguments (usage lines are at the top of each script), or just double-click it in
+Explorer — with no arguments it switches to an interactive mode that asks for the paths
+and options it needs (paste paths with right-click; Explorer's "Copy as path" quotes are
+handled). The window pauses at the end so you can read the output.
 
 ## The pipeline
 
