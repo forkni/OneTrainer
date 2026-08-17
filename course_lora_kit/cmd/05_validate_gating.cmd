@@ -10,8 +10,7 @@ rem   05_validate_gating.cmd --lora <path\to\lora.safetensors> --trigger <word> 
 rem   Optional: --prompts-file battery.json  (out-of-domain prompt battery)
 rem
 rem Re-run this at the checkpoint you actually ship -- gating measured at an
-rem earlier checkpoint does not transfer (see the skill's
-rem contrastive-concept-gating reference).
+rem earlier checkpoint does not transfer.
 rem
 rem Double-clicked with no arguments, the script asks for everything instead.
 

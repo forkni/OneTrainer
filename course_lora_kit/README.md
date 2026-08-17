@@ -5,10 +5,10 @@ StreamDiffusionTD course (Appendix D: *Training Your Own LoRA*). Everything here
 **addition** to a pinned OneTrainer checkout — no upstream file is modified — and every
 recipe and threshold in it is backed by measured training runs, not folklore.
 
-If you're using Claude Code, open a session in this repo's root: the
-`lora-training-pipeline` skill (in `.claude/skills/`) guides you through the phases below
-with the full reasoning behind each step. The `references/` files inside the skill are
-plain markdown — readable without any agent.
+Each script carries its usage at the top and explains itself as it runs. The full
+reasoning behind every threshold and recipe — the config decodes, the Round 1 case
+study, the contrastive-concept method — is part of the StreamDiffusionTD course's
+materials (Appendix D and its companion references).
 
 ## Quick start
 
@@ -47,9 +47,6 @@ handled). The window pauses at the end so you can read the output.
 - `scripts\` — the course's seven measurement scripts (dataset hygiene, checkpoint norm
   analysis, gating, identity). Canonical copies live in the course repo's
   `course_v3/appendices/assets/`; these are verbatim copies so the kit is self-contained.
-- `.claude\skills\lora-training-pipeline\` (repo root) — the agent skill + eight
-  reference files holding the deep detail: full recipe decodes, the Round 1 case study,
-  the contrastive-concept method, screening thresholds, CLI cheatsheet.
 
 ## Model downloads
 
@@ -71,5 +68,5 @@ needed for them. The identity scripts additionally need `facebook/dinov2-base` (
   branch is a deliberate action, not routine.
 - The character recipe and all thresholds come from the course's Round 1 training round
   (four competing recipes plus two isolation retrains, scored on identity, gating,
-  colour neutrality, and weight-delta diagnostics). The full story:
-  `.claude/skills/lora-training-pipeline/references/round1-case-study.md`.
+  colour neutrality, and weight-delta diagnostics). The full case study is part of the
+  course materials.

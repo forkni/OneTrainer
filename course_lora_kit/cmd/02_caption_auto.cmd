@@ -55,8 +55,8 @@ echo   *** Do NOT put your trigger word in a caption prefix. ***
 echo   A trigger present in 100%% of captions cannot learn to gate -- the LoRA
 echo   will apply on every prompt, trigger or not. The trigger goes into the
 echo   captions of the STANDARD concept only, with a trigger-free contrastive
-echo   concept alongside it -- see the lora-training-pipeline skill,
-echo   references\contrastive-concept-gating.md, and phase 2 of the README.
+echo   concept alongside it -- see configs\concepts_contrastive_template.json
+echo   and phase 2 of the README.
 echo   (If you do use --caption-prefix for something else, end it with a comma
 echo   and a space -- the captioners concatenate it with no separator.)
 echo.

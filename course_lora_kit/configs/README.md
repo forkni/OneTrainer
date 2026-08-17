@@ -11,7 +11,7 @@ are flat top-level keys, not nested under a `lora.` prefix).
 ## `character_sdxl.json` — the measured character recipe
 
 The exact dials of the course's Round 1 winning arm (**A2**, picked over four competing
-recipes by measurement — see the skill's `references/round1-case-study.md`):
+recipes by measurement — the full case study is part of the course materials):
 
 | Field | Value | Why |
 | --- | --- | --- |
@@ -22,7 +22,7 @@ recipes by measurement — see the skill's `references/round1-case-study.md`):
 | `offset_noise_weight` | 0.03 | the other half of that fix |
 | `train_dtype` | `BFLOAT_16` | wider dynamic range than the preset's fp16 at the same memory cost; LoRA weights stay fp32 |
 | `layer_filter_preset` | `attn-mlp` | do **not** widen to `full` — a full-filter kohya LoRA is unloadable by diffusers-based runtimes (StreamDiffusionTD included) |
-| `epochs` / `batch_size` | 44 / 4 | 1188 steps on the measured ~48+48-image two-concept dataset; retune epochs to your dataset by views-per-image (see `references/03-training-recipes.md`) |
+| `epochs` / `batch_size` | 44 / 4 | 1188 steps on the measured ~48+48-image two-concept dataset; retune epochs to your dataset by views-per-image: `(steps × batch) ÷ images`, aim for ~40–60 |
 | `save_every` / unit | 100 / `STEP` | intermediate checkpoints are OFF by default; without them there is nothing to screen in phase 4 |
 
 ## `style_sdxl.json` / `style_sd15.json` — preset + course overrides
@@ -52,8 +52,8 @@ The second concept is what teaches the trigger to *gate*: training sees the subj
 with the trigger (learn it) and without (learn what "no trigger" looks like). Measured
 effect on the course's style dataset: net-of-null gating ratio 0.30 → 1.67. Skipping it —
 or putting the trigger in a caption prefix so it appears in 100% of captions — produces a
-LoRA that applies on every prompt whether the trigger is present or not. Full method and
-numbers: the skill's `references/contrastive-concept-gating.md`.
+LoRA that applies on every prompt whether the trigger is present or not. The full
+measurement method is covered in the course materials.
 
 The `keep_tags_count: 1` setting is deliberate: it pins the trigger at tag position 0 if
 you ever enable tag shuffling/dropout on the STANDARD concept. The template ships with
