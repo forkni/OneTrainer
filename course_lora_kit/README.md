@@ -10,6 +10,11 @@ reasoning behind every threshold and recipe — the config decodes, the Round 1 
 study, the contrastive-concept method — is part of the StreamDiffusionTD course's
 materials (Appendix D and its companion references).
 
+If you're using Claude Code, open a session in this repo's root: the
+`lora-training-pipeline` skill (in `.claude/skills/`, tracked on this branch) guides you
+through the phases below with the full reasoning behind each step. The `references/`
+files inside the skill are plain markdown — readable without any agent.
+
 ## Quick start
 
 ```
@@ -29,12 +34,12 @@ handled). The window pauses at the end so you can read the output.
 
 | Phase | What you do | Script |
 | --- | --- | --- |
-| 0. Setup | Install OneTrainer, verify venv + CUDA | `cmd\00_verify_setup.cmd` |
+| 0. Setup | Install OneTrainer, verify venv + CUDA; print the merged recipe before training | `cmd\00_verify_setup.cmd`, `cmd\00b_print_recipe.cmd` |
 | 1. Dataset prep | Curate images; screen for outliers, undersized frames, letterbox bars, subfolder imbalance | `cmd\01_dataset_hygiene.cmd` |
-| 2. Captioning | Auto-caption, then the by-hand pass; set up the trigger word + contrastive concept | `cmd\02_caption_auto.cmd` |
+| 2. Captioning | Check the trigger word is free of loaded meaning; auto-caption, then the by-hand pass; set up the contrastive concept | `cmd\02_check_trigger.cmd`, `cmd\02_caption_auto.cmd` |
 | 3. Training | Shipped preset + course overlay config | `cmd\03_train_character_sdxl.cmd`, `cmd\03_train_style_sdxl.cmd`, `cmd\03_train_style_sd15.cmd` |
 | 4. Checkpoint screening | Rendering-free weight-delta screen of the whole sweep (no GPU) | `cmd\04_checkpoint_screen.cmd` |
-| 5. Validation | Render checks: 2×2 grid, gating measure, checkpoint sweep, identity scoring | `cmd\05_validate_*.cmd` |
+| 5. Validation | Render checks: 2×2 grid, gating measure, checkpoint sweep, identity scoring; colour-drift metric over a sweep | `cmd\05_validate_*.cmd`, `scripts\color_stats.py` |
 | 6. Deploy | Load into your real-time component and judge at real step counts | (in the course repo — see Appendix D) |
 
 ## What's where
@@ -43,10 +48,18 @@ handled). The window pauses at the end so you can read the output.
   shipped training presets under the course configs.
 - `configs\` — sparse overlay configs. `character_sdxl.json` is the course's **measured**
   character recipe (the Round 1 "A2" winner); the style configs keep the shipped preset's
-  recipe and only add checkpointing/epoch dials it leaves unset. See `configs\README.md`.
-- `scripts\` — the course's seven measurement scripts (dataset hygiene, checkpoint norm
-  analysis, gating, identity). Canonical copies live in the course repo's
-  `course_v3/appendices/assets/`; these are verbatim copies so the kit is self-contained.
+  rank/alpha/LR and pin the dials it leaves unset or defaults badly (warmup, Min-SNR +
+  offset noise, bf16, checkpointing) — the Round 2 "S0b" recipe. Two concepts templates:
+  character (flip off) and style (flip on). See `configs\README.md`.
+- `scripts\` — the course's ten measurement scripts (trigger-word check, dataset
+  hygiene, effective-config printer, checkpoint norm analysis, gating, identity, colour
+  drift). Nine mirror the course repo's `course_v3/appendices/assets/` byte for byte;
+  `print_effective_config.py` is fork-only because it imports OneTrainer. The two
+  StreamDiffusion-side checks (`test_lora_graph_check.py`, `test_lora_sanity.py`) stay in
+  the course repo because they need a StreamDiffusion checkout, not this one.
+- `.claude\skills\lora-training-pipeline\` (repo root) — the agent skill + nine
+  reference files holding the deep detail: full recipe decodes, the Round 1 and Round 2
+  case studies, the contrastive-concept method, screening thresholds, CLI cheatsheet.
 
 ## Model downloads
 
@@ -68,5 +81,8 @@ needed for them. The identity scripts additionally need `facebook/dinov2-base` (
   branch is a deliberate action, not routine.
 - The character recipe and all thresholds come from the course's Round 1 training round
   (four competing recipes plus two isolation retrains, scored on identity, gating,
-  colour neutrality, and weight-delta diagnostics). The full case study is part of the
-  course materials.
+  colour neutrality, and weight-delta diagnostics). The full story:
+  `.claude/skills/lora-training-pipeline/references/round1-case-study.md`.
+- The style recipe's three corrections (warmup 30, Min-SNR + offset noise, bf16 pinned)
+  come from Round 2, a six-arm ablation on a 48-image style set:
+  `.claude/skills/lora-training-pipeline/references/round2-style-case-study.md`.
