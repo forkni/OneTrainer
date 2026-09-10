@@ -10,6 +10,11 @@ rem Defaults passed for you (your own flags override them, last flag wins):
 rem   --recursive        also walk subfolders and check subfolder balance
 rem   --min-side 1024    flag images under the SDXL floor (512 for SD1.5)
 rem
+rem The real floor is the aspect bucket, not the nominal resolution: at
+rem resolution 1024 a 4:3 image trains in the 1152x896 bucket, so a uniform
+rem 1280x960 set is a pure downscale and passes with --min-side 896. Pass
+rem your own --min-side (it overrides the default) when the set is not 1:1.
+rem
 rem Double-clicked with no arguments, the script asks for everything instead.
 
 call "%~dp0_env.cmd" || (pause & exit /b 1)
