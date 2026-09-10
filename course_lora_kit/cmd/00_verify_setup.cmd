@@ -26,7 +26,11 @@ for %%F in (
     "%REPO_ROOT%\scripts\generate_captions.py"
     "%REPO_ROOT%\training_presets\SDXL\#sdxl 1.0 LoRA.json"
     "%REPO_ROOT%\course_lora_kit\configs\character_sdxl.json"
+    "%REPO_ROOT%\course_lora_kit\configs\style_sdxl.json"
+    "%REPO_ROOT%\course_lora_kit\configs\concepts_contrastive_template_style.json"
     "%REPO_ROOT%\course_lora_kit\scripts\checkpoint_norm_analyzer.py"
+    "%REPO_ROOT%\course_lora_kit\scripts\check_trigger_word.py"
+    "%REPO_ROOT%\course_lora_kit\scripts\print_effective_config.py"
 ) do if not exist %%F (
     echo [course_lora_kit] MISSING: %%F
     set "MISSING=1"
@@ -38,6 +42,7 @@ if defined MISSING (
     exit /b 1
 )
 
-echo [course_lora_kit] Setup looks good. Next: 01_dataset_hygiene.cmd ^<your_image_folder^>
+echo [course_lora_kit] Setup looks good. Next: 00b_print_recipe.cmd (see the merged recipe),
+echo then 01_dataset_hygiene.cmd ^<your_image_folder^>
 pause
 exit /b 0
