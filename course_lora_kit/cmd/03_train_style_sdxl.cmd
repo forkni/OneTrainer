@@ -3,7 +3,10 @@ setlocal
 rem Phase 3 -- train a style LoRA on SDXL base 1.0.
 rem Uses OneTrainer's shipped SDXL LoRA preset (rank 16 / alpha 1.0, LR 3e-4)
 rem plus the course overlay: epochs sized for the measured ~40-60 views-per-image
-rem window, intermediate saves every 100 steps, warmup pinned explicitly.
+rem window, intermediate saves every 100 steps, warmup pinned explicitly,
+rem Min-SNR (gamma 5) + offset noise 0.03, and train_dtype pinned to bf16
+rem (unpinned, the preset chain trains fp16). Run 00b_print_recipe.cmd to see
+rem every dial after the preset/overlay merge.
 rem Extra args are forwarded (e.g. --config-value epochs=30).
 
 call "%~dp0_env.cmd" || (pause & exit /b 1)
@@ -14,7 +17,7 @@ if not exist "%CONCEPTS%" (
     echo     %CONCEPTS%
     echo.
     echo Create it from the shipped template:
-    echo   1. copy course_lora_kit\configs\concepts_contrastive_template.json ^
+    echo   1. copy course_lora_kit\configs\concepts_contrastive_template_style.json ^
 to training_concepts\style_concepts.json
     echo   2. edit the two "path" fields: concept 1 ^(STANDARD^) points at your
     echo      captioned dataset ^(trigger word in every caption^); concept 2

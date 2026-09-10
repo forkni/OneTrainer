@@ -13,7 +13,7 @@ if not exist "%CONCEPTS%" (
     echo     %CONCEPTS%
     echo.
     echo Create it from the shipped template:
-    echo   1. copy course_lora_kit\configs\concepts_contrastive_template.json ^
+    echo   1. copy course_lora_kit\configs\concepts_contrastive_template_style.json ^
 to training_concepts\style_concepts.json
     echo   2. edit the two "path" fields: concept 1 ^(STANDARD^) points at your
     echo      captioned dataset ^(trigger word in every caption^); concept 2
