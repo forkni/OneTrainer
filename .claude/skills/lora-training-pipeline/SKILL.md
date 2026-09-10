@@ -1,10 +1,9 @@
 ---
 name: lora-training-pipeline
-description: Guide the user through training, screening, and validating their own LoRA with OneTrainer via the course_lora_kit pipeline (StreamDiffusionTD course, Appendix D). Use when the user wants to prepare a dataset, caption it, train a style or character LoRA, screen checkpoints, or measure identity/gating.
-compatibility: Windows (the phase wrappers are .cmd scripts). Requires the OneTrainer venv (run install.bat once first) and an NVIDIA GPU for the training and render-validation phases; phases 1 and 4 run on CPU.
+description: Guide a StreamDiffusionTD student through the course_lora_kit workflow for preparing, captioning, training, screening, and validating a OneTrainer style or character LoRA. Use only for this course kit, not generic diffusion-training advice.
 metadata:
   author: StreamDiffusionTD course
-  version: 1.4.0
+  version: 1.4.1
 ---
 
 # LoRA training pipeline (StreamDiffusionTD course kit)
@@ -15,10 +14,25 @@ reference file below holding the full method and the measured numbers behind it.
 restate recipe values, thresholds, or measured claims from your own general knowledge —
 pull them from the reference files; everything in them is backed by measured runs.**
 
+## Codex operating boundary
+
+This is a Windows course-kit skill. Before proposing or running a phase command, identify
+the OneTrainer checkout the user intends to use and verify that it contains
+`course_lora_kit/` and the named wrapper. The course references describe a pinned snapshot;
+they are evidence for that snapshot, not proof that an arbitrary current OneTrainer fork has
+the same files, defaults, or CLI behavior. State a mismatch rather than silently translating
+the recipe to a different checkout.
+
+Do not start `install.bat`, `update.bat`, training, checkpoint rendering, or other
+potentially long/GPU-consuming work unless the user explicitly asks to execute it. When
+execution is requested, first report the exact command, expected output location, and the
+hardware or model files it needs. Do not install Python packages outside the checkout's
+existing virtual environment.
+
 ## Ground rules
 
 - The repo is pinned at OneTrainer commit `ee1ec47`. Don't update/rebase as part of
-  helping a user train.
+  helping a user train. Confirm the commit before calling it the user's current revision.
 - The deliverable is a `.safetensors` LoRA that works in a *real-time* component at 1–4
   denoising steps — validation is not done until it's been judged at the real step count
   and resolution, not just in a 25-step image tool.
@@ -85,3 +99,8 @@ a healthy band, check the case study for a matching failure signature before imp
 When a user wants different dials than the shipped configs, point out what the change is
 scoped against (most measured numbers are config-specific — the reference files flag
 which claims transfer and which don't).
+
+Keep a short handoff after a completed phase: source folder, command run or proposed,
+artifact location, observed healthy/failure signal, and the next phase. Do not imply a
+checkpoint is shippable until phase 5 validates it at the target real-time step count and
+resolution.
