@@ -1,0 +1,7 @@
+interface:
+  display_name: "LoRA Training Pipeline"
+  short_description: "Train and validate course-kit LoRAs"
+  default_prompt: "Use $lora-training-pipeline to guide my next OneTrainer course-kit phase."
+
+policy:
+  allow_implicit_invocation: true
