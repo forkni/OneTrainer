@@ -1,9 +1,10 @@
 ---
 name: lora-training-pipeline
-description: Guide a StreamDiffusionTD student through the course_lora_kit workflow for preparing, captioning, training, screening, and validating a OneTrainer style or character LoRA. Use only for this course kit, not generic diffusion-training advice.
+description: Guide a StreamDiffusionTD student through the course_lora_kit workflow for preparing, captioning, training, screening, and validating a OneTrainer style or character LoRA (StreamDiffusionTD course, Appendix D). Use when the user wants to prepare a dataset, caption it, train a style or character LoRA, screen checkpoints, or measure identity/gating. Use only for this course kit, not generic diffusion-training advice.
+compatibility: Windows (the phase wrappers are .cmd scripts). Requires the OneTrainer venv (run install.bat once first) and an NVIDIA GPU for the training and render-validation phases; phases 1 and 4 run on CPU.
 metadata:
   author: StreamDiffusionTD course
-  version: 1.4.1
+  version: 1.4.2
 ---
 
 # LoRA training pipeline (StreamDiffusionTD course kit)
@@ -14,9 +15,12 @@ reference file below holding the full method and the measured numbers behind it.
 restate recipe values, thresholds, or measured claims from your own general knowledge —
 pull them from the reference files; everything in them is backed by measured runs.**
 
-## Codex operating boundary
+## Operating boundary (Claude Code and Codex)
 
-This is a Windows course-kit skill. Before proposing or running a phase command, identify
+This is a Windows course-kit skill. Claude Code discovers it at
+`.claude/skills/lora-training-pipeline/`; Codex discovers the pointer at
+`.agents/skills/lora-training-pipeline/`, whose `SKILL.md` sends it here — the body and
+the `references/` files live only in this folder. Before proposing or running a phase command, identify
 the OneTrainer checkout the user intends to use and verify that it contains
 `course_lora_kit/` and the named wrapper. The course references describe a pinned snapshot;
 they are evidence for that snapshot, not proof that an arbitrary current OneTrainer fork has

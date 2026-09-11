@@ -12,8 +12,10 @@ materials (Appendix D and its companion references).
 
 If you're using Claude Code, open a session in this repo's root: the
 `lora-training-pipeline` skill (in `.claude/skills/`, tracked on this branch) guides you
-through the phases below with the full reasoning behind each step. The `references/`
-files inside the skill are plain markdown — readable without any agent.
+through the phases below with the full reasoning behind each step. Codex finds the same
+skill through the pointer at `.agents/skills/lora-training-pipeline/` (Codex does not
+scan `.claude/skills/`). The `references/` files inside the skill are plain markdown —
+readable without any agent.
 
 ## Quick start
 
