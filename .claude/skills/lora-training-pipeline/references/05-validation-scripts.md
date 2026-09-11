@@ -116,6 +116,14 @@ ratio cannot see and the grid can: colour drift (S0b vs S0) and baked-in bars (S
 3.02 with 214 px pillarbox bars in every render). So: ratio for gating, grid + seed batch
 for what the pixels do, hygiene before training for what the pixels *were*.
 
+`d_null` is the base model's own response to the inserted token, measured with the LoRA
+off in the same run and subtracted before the ratio (`test_lora_gating_measure.py:232`),
+so there is no pre-training version of this measurement — without a LoRA `d_leak` is
+zero and the script prints the ratio as undefined. The anchors above are this course's
+two datasets' values (1.67 on 21 images, 3.0 on 48, same recipe), not targets for a
+third; a value off them is read from the raw `d_leak` / `d_gate` / `d_null` the script
+prints.
+
 ## Which checkpoint to ship
 
 Run identity/consistency across your sweep's survivors *and* re-run gating at the
