@@ -39,8 +39,8 @@ handled). The window pauses at the end so you can read the output.
 | 2. Captioning | Check the trigger word is free of loaded meaning; auto-caption, then the by-hand pass; set up the contrastive concept | `cmd\02_check_trigger.cmd`, `cmd\02_caption_auto.cmd` |
 | 3. Training | Shipped preset + course overlay config | `cmd\03_train_character_sdxl.cmd`, `cmd\03_train_style_sdxl.cmd`, `cmd\03_train_style_sd15.cmd` |
 | 4. Checkpoint screening | Rendering-free weight-delta screen of the whole sweep (no GPU) | `cmd\04_checkpoint_screen.cmd` |
-| 5. Validation | Render checks: 2×2 grid, gating measure, checkpoint sweep, identity scoring; colour-drift metric over a sweep | `cmd\05_validate_*.cmd`, `scripts\color_stats.py` |
-| 6. Deploy | Load into your real-time component and judge at real step counts | (in the course repo — see Appendix D) |
+| 5. Validation | Render checks: 2×2 grid, gating measure, checkpoint sweep, seed batch (one checkpoint, several seeds, LoRA on/off, colour-drift number per render), identity scoring; colour-drift metric over a sweep | `cmd\05_validate_*.cmd`, `scripts\color_stats.py` |
+| 6. Deploy | Stage the pick (norm recompute, copy, SHA-256), then load it into your real-time component and judge at real step counts | `cmd\06_stage_pick.cmd`, then the course repo — see Appendix D |
 
 ## What's where
 
@@ -51,9 +51,10 @@ handled). The window pauses at the end so you can read the output.
   rank/alpha/LR and pin the dials it leaves unset or defaults badly (warmup, Min-SNR +
   offset noise, bf16, checkpointing) — the Round 2 "S0b" recipe. Two concepts templates:
   character (flip off) and style (flip on). See `configs\README.md`.
-- `scripts\` — the course's ten measurement scripts (trigger-word check, dataset
-  hygiene, effective-config printer, checkpoint norm analysis, gating, identity, colour
-  drift). Nine mirror the course repo's `course_v3/appendices/assets/` byte for byte;
+- `scripts\` — the course's twelve measurement scripts (trigger-word check, dataset
+  hygiene, effective-config printer, checkpoint norm analysis, gating, seed batch,
+  identity, colour drift, checkpoint staging). Eleven mirror the course repo's
+  `course_v3/appendices/assets/` byte for byte;
   `print_effective_config.py` is fork-only because it imports OneTrainer. The two
   StreamDiffusion-side checks (`test_lora_graph_check.py`, `test_lora_sanity.py`) stay in
   the course repo because they need a StreamDiffusion checkout, not this one.
@@ -67,7 +68,13 @@ The `.cmd` scripts set `HF_HOME` to `workspace\hf_cache` (inside this repo, giti
 unless you've already set it — so the SDXL/SD1.5 base models download once, in one
 predictable place. If you already have the models cached elsewhere, set `HF_HOME` to that
 location before running. The validation scripts in `scripts\` load with
-`local_files_only=True` — they use the cache but won't populate it; the first *training*
+`local_files_only=True` — they use the cache but won't populate it. They also resolve the
+repo id to the cached snapshot folder before loading (`resolve_local_snapshot()` in each
+rendering script): `huggingface_hub` 1.22+ keeps a listing of the repo's *full* file tree
+and refuses a partial snapshot offline, even one that has every file diffusers needs —
+found 2026-09-11 on the cache that had rendered all of Round 2. Relative `--output-dir` /
+`--json` paths resolve against the directory you run a wrapper from, not the script's
+folder. The first *training*
 run (or a one-off `transformers`/`diffusers` download) is what fills it. The two base
 models the presets target (`stabilityai/stable-diffusion-xl-base-1.0`,
 `stable-diffusion-v1-5/stable-diffusion-v1-5`) are public; no Hugging Face token is

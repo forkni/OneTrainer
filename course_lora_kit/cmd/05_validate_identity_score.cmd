@@ -16,6 +16,9 @@ rem as long as --reference-dir is the same folder.
 rem
 rem Double-clicked with no arguments, the script asks for one render set and the
 rem reference folder. To score several sets in one run, use the terminal form.
+rem
+rem Relative --output-dir / --json paths resolve against the directory you run
+rem this from (the wrapper does not cd), not against the script's folder.
 
 call "%~dp0_env.cmd" || (pause & exit /b 1)
 

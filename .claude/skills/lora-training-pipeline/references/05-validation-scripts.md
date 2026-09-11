@@ -10,6 +10,8 @@ StreamDiffusion checkout; that folder's README is the canonical deep-dive). Each
 | `05_validate_grid.cmd` | `test_lora_grid_sdxl_base.py` | Did training take, does the trigger gate, does the style leak — one 2×2 grid, first look |
 | `05_validate_gating.cmd` | `test_lora_gating_measure.py` | The full multi-prompt gating measurement (net-of-null ratio, `d_leak`/`d_gate`) |
 | `05_validate_sweep.cmd` | `test_lora_checkpoint_sweep.py` | Where in the sweep the style takes vs collapses — rendered contact sheet |
+| `05_validate_batch.cmd` | `test_lora_seed_batch.py` | Is *one* checkpoint stable across seeds — N seeds LoRA on + the same N LoRA off, mean CIELAB a\*/b\* per render, drift count against a provisional a\* line |
+| `06_stage_pick.cmd` | `stage_pick.py` | Hand-off of the pick: recompute ‖ΔW‖_F + module count, check rank/alpha (and `--expected-norm` against the screen), copy — never move — to the loras folder, SHA-256 both sides |
 | `05_validate_identity_consistency.cmd` | `test_lora_identity_consistency.py` | Is it *the same subject* across prompts and seeds (renders its own grid) |
 | `05_validate_identity_score.cmd` | `test_lora_identity_score.py` | Same identity metric for renders you already have (ComfyUI, component captures) |
 | (no wrapper — run in the venv) | `color_stats.py --sweep-dir <sweep> [--baseline-dir <other sweep>]` | Colour drift as a number: mean CIELAB a\* per sweep render, with a Δa\* column against another arm — the metric behind Round 2's 31.0 → 12.0 |
@@ -38,8 +40,26 @@ course's Appendix D) — these scripts validate the file, not the deployment.
 ## Per-script notes
 
 - **Grid** (`test_lora_grid_sdxl_base.py`): 2×2 = LoRA on/off × trigger present/absent,
-  at normal step counts on SDXL base. `--prompts-file` (JSON list of
-  `[label, prompt]`) runs the matrix once per prompt in one invocation.
+  at normal step counts on SDXL base. Cells: top-left no LoRA / no trigger, top-right no
+  LoRA / trigger, bottom-left LoRA / no trigger, bottom-right LoRA / trigger. Bottom-left is
+  the discriminating cell: it should look like the top row, not like bottom-right.
+  `--prompts-file` (JSON list of `[label, prompt]`) runs the matrix once per prompt in one
+  invocation.
+- **Seed batch** (`test_lora_seed_batch.py`): the grid and the sweep render one seed each;
+  Round 2's S0 arm looked fine at one seed and split 2 clean / 1 drifting / 1 pink across
+  four in a live ComfyUI batch judged by eye (S0b: 4/4 coherent in the same batch; prompt
+  and seeds were not recorded). The batch renders `--seeds` N seeds of one prompt with the
+  LoRA on and the same N with it off, prints mean a\*/b\* for every render, and counts
+  renders over `--a-threshold` (default 20 — **provisional**, and a flag means *look*, not
+  *reject*). Where 20 comes from: the seed-42 sweep renders measured by `color_stats.py` —
+  controls 0.6–1.5, S0b up to ~13 across 13 checkpoints, S0's pink renders 28–31. The
+  first per-seed a\* on the S0b pick itself (default prompt, seeds 42–45, 2026-09-11)
+  read 12.1 / 9.7 / 28.5 / 25.3 against controls 0.3–0.6 — two over the line, both
+  structurally intact: seed 44 a purple-orange sunset sky over a cream tower (palette,
+  neutrals held), seed 45 the tower itself salmon-pink (tint reached the neutrals). Mean
+  a\* measures tint, not collapse, and cannot separate a warm palette from drift; the
+  by-eye tell is whether the neutrals stayed neutral. Re-derive the line on your own set
+  from a checkpoint you can see is clean and a render you can see has drifted.
 - **Gating** (`test_lora_gating_measure.py`): four cells per prompt — LoRA off,
   off+trigger, on, on+trigger — yielding `d_leak`, `d_gate`, and a token-insertion
   noise floor `d_null`. **Always report the net-of-null ratio**: inserting *any* word
@@ -83,9 +103,25 @@ course's Appendix D) — these scripts validate the file, not the deployment.
    same footing and *only then* were cross-session comparisons trusted. Within-batch
    comparisons are always valid; cross-batch ones must earn it.
 
+## When the grid and the ratio disagree
+
+The ratio decides. The grid is one seed of one prompt read by eye; the net-of-null ratio
+is three out-of-domain prompts with the tokenizer's own shift subtracted. Measured anchors
+(all net-of-null, `ratio_net_d_gate_over_d_leak`, Round 2 unless noted): 0.28 S5 (naive
+0.97 — the trigger inert, not leaking), 0.30 the original round's prefix-trap floor, 1.63
+S3 (rank/alpha damaged), 1.67 the original round after the contrastive concept, 1.73 the
+S0b pick, 2.75 S1, 3.01 S0, 3.02 S2. Nothing has been measured between 0.30 and 1.63, so
+there is no cutoff there — a ratio in that gap is unexplored, not "mild". Two things the
+ratio cannot see and the grid can: colour drift (S0b vs S0) and baked-in bars (S2 gated at
+3.02 with 214 px pillarbox bars in every render). So: ratio for gating, grid + seed batch
+for what the pixels do, hygiene before training for what the pixels *were*.
+
 ## Which checkpoint to ship
 
 Run identity/consistency across your sweep's survivors *and* re-run gating at the
 specific checkpoint you're about to ship — the render-side winner is not automatically
-the gating winner (`contrastive-concept-gating.md` has the measured case). Then judge
-the pick in the real component at real step counts before calling it done.
+the gating winner (`contrastive-concept-gating.md` has the measured case). Run the seed
+batch on that checkpoint, then stage it with `06_stage_pick.cmd` (pass `--expected-norm`
+from the screen; the copy is refused if the recomputed norm is off by more than 2%) so
+the file in the loras folder is provably the row in the norm table. Then judge the pick
+in the real component at real step counts before calling it done.

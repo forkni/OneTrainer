@@ -13,6 +13,9 @@ rem Re-run this at the checkpoint you actually ship -- gating measured at an
 rem earlier checkpoint does not transfer.
 rem
 rem Double-clicked with no arguments, the script asks for everything instead.
+rem
+rem Relative --output-dir / --json paths resolve against the directory you run
+rem this from (the wrapper does not cd), not against the script's folder.
 
 call "%~dp0_env.cmd" || (pause & exit /b 1)
 

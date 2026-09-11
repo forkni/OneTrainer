@@ -37,5 +37,8 @@ pushd "%REPO_ROOT%"
 "%VENV_PY%" course_lora_kit\scripts\print_effective_config.py --preset-path "%PRESET%" --config-path "%OVERLAY%" %1 %2 %3 %4 %5 %6 %7 %8 %9
 set "EC=%errorlevel%"
 popd
-pause
+rem Pause only when Explorer launched this file directly (same test _env.cmd uses),
+rem so a terminal or a script that calls it gets the exit code back without a keypress.
+set "CMDLINE=%cmdcmdline:"=%"
+if not "%CMDLINE:00b_print_recipe.cmd=%"=="%CMDLINE%" pause
 exit /b %EC%

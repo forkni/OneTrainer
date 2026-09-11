@@ -44,6 +44,31 @@ DEFAULT_MODEL = "stabilityai/stable-diffusion-xl-base-1.0"
 DEFAULT_PROMPT = "a tall art deco tower, architectural drawing"
 DEFAULT_NEG_PROMPT = "blurry, low quality"
 
+def resolve_local_snapshot(model: str) -> str:
+    """Return the cached snapshot folder for a Hub repo id when one exists, else `model` unchanged.
+
+    huggingface_hub >= 1.22 stores a listing of the repo's full file tree next to the cache and,
+    under local_files_only=True, refuses a snapshot that lacks any file in that listing -- even
+    files diffusers never asked for (fp32 duplicates, ONNX/Flax weights, README images). The kit
+    only ever cached what SDXL base needs, so this points diffusers at the snapshot folder itself,
+    which loads the same files without the listing check. Found 2026-09-11 when every rendering
+    script in the kit started failing with IncompleteSnapshotError on a cache that had rendered
+    all of Round 2; verified by re-rendering a Round 2 grid byte for byte after the change.
+    """
+    if os.path.isdir(model):
+        return model
+    hub = os.environ.get("HF_HUB_CACHE") or os.path.join(
+        os.environ.get("HF_HOME", str(Path.home() / ".cache" / "huggingface")), "hub"
+    )
+    repo_dir = Path(hub) / ("models--" + model.replace("/", "--"))
+    ref = repo_dir / "refs" / "main"
+    if ref.is_file():
+        snap = repo_dir / "snapshots" / ref.read_text().strip()
+        if (snap / "model_index.json").is_file():
+            return str(snap)
+    return model
+
+
 # Matches OneTrainer's own intermediate-checkpoint naming convention, e.g.
 # "...-save-300-60-0.safetensors" -> step 300. This is OneTrainer's naming, not
 # machine-specific -- safe to keep as-is for any OneTrainer run.
@@ -126,6 +151,7 @@ def main() -> int:
         default=str(Path(__file__).resolve().parent / "outputs" / "lora_checkpoint_sweep"),
     )
     args = parser.parse_args()
+    args.model = resolve_local_snapshot(args.model)
 
     final_label = args.final_label
     if final_label is None:

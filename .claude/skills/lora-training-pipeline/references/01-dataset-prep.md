@@ -42,9 +42,22 @@ Script: `course_lora_kit\cmd\01_dataset_hygiene.cmd <image_folder>` (wraps
 
 ## Balance rules
 
-- **Subfolders/motifs:** a dataset split, say, 16:5 between two motifs trains the
-  majority motif's texture into the *whole* style, not just its own share of the images —
-  that imbalance is exactly what dominated one measured collapse. Keep group counts close.
+- **Subfolders/motifs:** sort the curation folder into one subfolder per group and let the
+  screen count them — `--recursive` is the `.cmd` default; it prints `Per-subfolder counts:`
+  with a percent per folder and `<<< imbalanced` on any folder above
+  `--imbalance-threshold` (0.5, strictly greater). The number to read is *largest group ÷
+  total*. The course's original 21-image style set held 16 close-up circular-ornament
+  drawings against 5 city / clock-tower drawings: 16 ÷ 21 = 76%, far over the line, and
+  its memorised run rendered the ornament texture whatever the prompt asked for — the
+  majority motif's texture trained into the *whole* style, not just its share of the
+  images. That set was flat on disk; the folders are what this rule asks for now.
+- **Style sets — which axis to fold on:** subject (`subject_main\`, `subject_other\`,
+  `no_subject\`). Shot type (close / medium / wide) stays a by-eye tally, because the
+  profiler counts folders, not framings. A style set may legitimately trip the 50% line on
+  `no_subject\` — that subject-free majority is what keeps it a style rather than a
+  character (Round 3a Aeon Flux: 29 / 14 / 5 = 60% / 29% / 10%, warning printed and
+  accepted). Read the warning as a question — is the majority folder one motif or many? —
+  and answer it by eye before captioning; it is a stop only when the answer is "one".
 - **Characters — outfits:** no single outfit over roughly half the set, and caption the
   outfit on every image (see `02-captioning.md`) so it stays something the trigger can
   vary rather than part of "what this character looks like."

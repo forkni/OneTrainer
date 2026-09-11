@@ -10,6 +10,9 @@ rem   05_validate_grid.cmd --lora <path\to\lora.safetensors> --trigger <word> [f
 rem   Optional: --prompts-file battery.json  (runs the 2x2 once per prompt)
 rem
 rem Double-clicked with no arguments, the script asks for everything instead.
+rem
+rem Relative --output-dir / --json paths resolve against the directory you run
+rem this from (the wrapper does not cd), not against the script's folder.
 
 call "%~dp0_env.cmd" || (pause & exit /b 1)
 

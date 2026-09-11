@@ -14,6 +14,9 @@ rem   no-LoRA baseline); per-label scale: --lora-scale LABEL=0.0
 rem
 rem Double-clicked with no arguments, the script asks for one LoRA and the
 rem reference folder. To compare several LoRAs in one run, use the terminal form.
+rem
+rem Relative --output-dir / --json paths resolve against the directory you run
+rem this from (the wrapper does not cd), not against the script's folder.
 
 call "%~dp0_env.cmd" || (pause & exit /b 1)
 

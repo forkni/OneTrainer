@@ -12,6 +12,9 @@ rem flag as the config-independent signal; the absolute reference bands only
 rem apply at the scale they were calibrated on (the script prints the caveat).
 rem
 rem Double-clicked with no arguments, the script asks for the folder instead.
+rem
+rem Relative --output-dir / --json paths resolve against the directory you run
+rem this from (the wrapper does not cd), not against the script's folder.
 
 call "%~dp0_env.cmd" || (pause & exit /b 1)
 

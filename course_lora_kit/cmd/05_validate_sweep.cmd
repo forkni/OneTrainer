@@ -13,6 +13,9 @@ rem Get --final-step from your run's own log or config -- don't guess it from a
 rem filename or reuse someone else's number.
 rem
 rem Double-clicked with no arguments, the script asks for everything instead.
+rem
+rem Relative --output-dir / --json paths resolve against the directory you run
+rem this from (the wrapper does not cd), not against the script's folder.
 
 call "%~dp0_env.cmd" || (pause & exit /b 1)
 
