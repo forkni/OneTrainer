@@ -4,13 +4,13 @@ description: Guide a StreamDiffusionTD student through the course_lora_kit workf
 compatibility: Windows (the phase wrappers are .cmd scripts). Requires the OneTrainer venv (run install.bat once first) and an NVIDIA GPU for the training and render-validation phases; phases 1 and 4 run on CPU.
 metadata:
   author: StreamDiffusionTD course
-  version: 1.4.3
+  version: 1.5.0
 ---
 
 # LoRA training pipeline (Codex entry point)
 
 This folder is the Codex discovery point only. The skill body, the phase table, the
-operating boundary and all nine `references/*.md` files are tracked once, at
+operating boundary and all ten `references/*.md` files are tracked once, at
 `.claude/skills/lora-training-pipeline/` (repo root), so that Claude Code and Codex read
 the same text and the same measured numbers.
 

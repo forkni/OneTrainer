@@ -4,7 +4,7 @@ description: Guide a StreamDiffusionTD student through the course_lora_kit workf
 compatibility: Windows (the phase wrappers are .cmd scripts). Requires the OneTrainer venv (run install.bat once first) and an NVIDIA GPU for the training and render-validation phases; phases 1 and 4 run on CPU.
 metadata:
   author: StreamDiffusionTD course
-  version: 1.4.3
+  version: 1.5.0
 ---
 
 # LoRA training pipeline (StreamDiffusionTD course kit)
@@ -72,6 +72,12 @@ Cross-cutting references:
   norm bands are step-count-relative rather than absolute, the pillarbox tool-asymmetry
   demo, and the trigger-inert failure mode of skipping the contrastive concept. Load
   this for any style-track "what does this rule protect me from" question.
+- `references/round3-curated-rerun.md` — the same arms re-run on the curated 50-image
+  set (2026-09-12): the Round 3a control against S0b (gating 1.73 → 2.47, seed batch
+  0/4 flagged, a* ≈ 0 with the recipe unchanged — curation is the lever), the
+  self-describing arm run names, and which Round 2 verdicts transferred. Load this
+  when a user asks whether the Round 2 numbers apply to their own dataset or what
+  curating is worth in measured terms.
 - `references/cli-cheatsheet.md` — `train.py` / `generate_captions.py` flags and the
   `--config-value` override syntax.
 
