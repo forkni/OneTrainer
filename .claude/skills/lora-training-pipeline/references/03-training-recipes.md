@@ -1,9 +1,10 @@
 # Phase 3 — Training recipes
 
 Scripts: `course_lora_kit\cmd\03_train_character_sdxl.cmd`,
-`03_train_style_sdxl.cmd`, `03_train_style_sd15.cmd`. Each layers OneTrainer's shipped
-preset under a sparse course overlay (`course_lora_kit/configs/`) and forwards extra
-args, so one-off tweaks are `--config-value KEY=VALUE`, not config edits.
+`03_train_style_sdxl.cmd`. Each layers OneTrainer's shipped SDXL preset under a sparse
+course overlay (`course_lora_kit/configs/`) and forwards extra args, so one-off tweaks
+are `--config-value KEY=VALUE`, not config edits. The kit trains SDXL only — no SD 1.5
+track exists (removed 2026-09-12; it was never measured).
 
 All code citations below are verified at OneTrainer commit `ee1ec47`.
 
@@ -22,7 +23,7 @@ flexibility, colour neutrality, and gating stability (see `round1-case-study.md`
 | `loss_weight_fn` / `loss_weight_strength` | `MIN_SNR_GAMMA` / 5.0 | with offset noise below, the measured fix for a colour-channel collapse — arms without these two dials went magenta, arms with them stayed neutral (`round1-case-study.md`) |
 | `offset_noise_weight` | 0.03 | |
 | `train_dtype` | `BFLOAT_16` (LoRA weights fp32) | wider dynamic range than fp16, same memory, on RTX 30-series and up. Must be pinned: OneTrainer's default is `FLOAT_16` (`TrainConfig.py:1074`) and no shipped preset sets it |
-| `layer_filter_preset` | `attn-mlp` | verified mapping: `attn-mlp` → `["attentions"]`, `attn-only` → `["attn"]`, `full` → `[]` = no restriction (`modules/modelSetup/BaseStableDiffusionXLSetup.py:40-42`). Do **not** use `full` for a LoRA that must load in a diffusers-based runtime — see the A3 arm in the case study. **The label alone does nothing**: the trainer builds its filter from `layer_filter` only (`modules/util/ModuleFilter.py:39-43`), and an empty `layer_filter` matches every layer. Always set `layer_filter: "attentions"` explicitly in the overlay (the kit's style overlays do since 2026-09-12; the first Round 3a launch trained 794 / 0 layers before this was caught) and confirm `Selected layers: 722 / Deselected layers: 72` in the first screen of the log |
+| `layer_filter_preset` | `attn-mlp` | verified mapping: `attn-mlp` → `["attentions"]`, `attn-only` → `["attn"]`, `full` → `[]` = no restriction (`modules/modelSetup/BaseStableDiffusionXLSetup.py:40-42`). Do **not** use `full` for a LoRA that must load in a diffusers-based runtime — see the A3 arm in the case study. **The label alone does nothing**: the trainer builds its filter from `layer_filter` only (`modules/util/ModuleFilter.py:39-43`), and an empty `layer_filter` matches every layer. Always set `layer_filter: "attentions"` explicitly in the overlay (the kit's style overlay does since 2026-09-12; the first Round 3a launch trained 794 / 0 layers before this was caught) and confirm `Selected layers: 722 / Deselected layers: 72` in the first screen of the log |
 | Text encoders | frozen (preset) | SDXL's dual TEs overfit fast on a small character set; gating comes from the contrastive concept, not TE training |
 | `epochs` / `batch_size` | 44 / 4 → 1188 steps | on the measured Round 1 set: 55 curated images × 2 concepts = 110 items → 27 steps/epoch (drop-last) × 44; retune epochs by views-per-image (below) for a different dataset size |
 | `save_every` / unit | 100 / `STEP` | mandatory for phases 4–5 — the default is no intermediate saves at all |
@@ -32,7 +33,7 @@ On the measured run, the pick was **not the final checkpoint**: step 1099 of 118
 every axis; the finals were never even scored under readable names at first. Never plan
 to ship "the last checkpoint" — plan to ship the checkpoint that screens best (phase 4/5).
 
-## The style path (`style_sdxl.json` / `style_sd15.json`)
+## The style path (`style_sdxl.json`)
 
 Keeps the shipped preset's core recipe intact — rank 16, **alpha 1.0** (scale 0.0625),
 LR 3e-4, `attn-mlp` — because that exact config is what the course's style-LoRA numbers
@@ -79,7 +80,7 @@ aren't in the preset JSON at all; they're OneTrainer's defaults
 | Learning Rate | 3e-4 | `learning_rate` | deliberately high *because* alpha is 1.0 — the two travel together |
 | Epochs | 100 | `max_train_epochs` | a baseline default, not tuned — set by views-per-image (below) |
 | Optimizer | AdamW | `optimizer_type` | Prodigy alternative below |
-| Resolution | 1024 SDXL / 512 SD1.5 | `resolution` | aspect bucketing handles non-square |
+| Resolution | 1024 | `resolution` | aspect bucketing handles non-square |
 | Batch Size | 4 | `train_batch_size` | first dial to lower when VRAM runs out; 1 is fine, just slower |
 | Loss Weight Function | Constant | ≈ `--min_snr_gamma` | the preset leaves min-SNR off; **both** course recipes turn it on for measured reasons (Round 1 character, Round 2 S0b style — the preset's Constant let colour drift magenta in live batches) |
 | Offset Noise Weight | 0.0 | `--noise_offset` | off in the preset; 0.03 in both course recipes (measured — see the style overlay's loss-weighting provenance above) |
@@ -87,7 +88,7 @@ aren't in the preset JSON at all; they're OneTrainer's defaults
 | LoRA Weight Data Type | float32 | — | OneTrainer's own default; adapter weights stay fp32 regardless of train dtype |
 | EMA | Off | — | turning it on tends to *reduce* output diversity — against a single-concept LoRA's goal |
 | LoRA Decompose / DoRA | Off | LyCORIS `--dora_wd` | a DoRA checkpoint carries an extra `dora_scale` key per module — `checkpoint_norm_analyzer.py` detects and calls it out |
-| Text encoders | frozen (SDXL preset only) | `network_train_unet_only` | the SD1.5 preset doesn't touch this field, so SD1.5 keeps OneTrainer's default: TE trains, capped at 30 epochs |
+| Text encoders | frozen | `network_train_unet_only` | set by the SDXL preset; OneTrainer's own default would train the TE, capped at 30 epochs |
 | Output Format | Kohya | — | single `.safetensors`; diffusers-based components load it |
 
 ## The alpha ÷ rank rule (read before copying any community recipe)

@@ -8,7 +8,7 @@ rem   01_dataset_hygiene.cmd <image_folder> [extra profiler flags]
 rem
 rem Defaults passed for you (your own flags override them, last flag wins):
 rem   --recursive        also walk subfolders and check subfolder balance
-rem   --min-side 1024    flag images under the SDXL floor (512 for SD1.5)
+rem   --min-side 1024    flag images under the SDXL floor
 rem
 rem The real floor is the aspect bucket, not the nominal resolution: at
 rem resolution 1024 a 4:3 image trains in the 1152x896 bucket, so a uniform
@@ -46,11 +46,11 @@ if not exist "%FOLDER%" (
 )
 
 echo.
-choice /c 12 /m "Model family: [1] SDXL (min side 1024)  [2] SD1.5 (min side 512)"
-if errorlevel 2 (set "MINSIDE=512") else (set "MINSIDE=1024")
+echo Size floor: 1024 on the short side ^(SDXL^). For a non-square set, run from a
+echo terminal and pass the bucket's short side instead, e.g. --min-side 896 for 4:3.
 echo.
 
-"%VENV_PY%" "%REPO_ROOT%\course_lora_kit\scripts\dataset_hygiene_profiler.py" --recursive --min-side %MINSIDE% "%FOLDER%"
+"%VENV_PY%" "%REPO_ROOT%\course_lora_kit\scripts\dataset_hygiene_profiler.py" --recursive --min-side 1024 "%FOLDER%"
 goto :finish
 
 :no_input

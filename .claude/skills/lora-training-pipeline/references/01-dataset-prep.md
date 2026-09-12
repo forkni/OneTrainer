@@ -26,7 +26,7 @@ Scripts: `course_lora_kit\cmd\01_dataset_hygiene.cmd <image_folder>` (wraps
 
 ## Resolution and framing rules
 
-- At least **1024px on the short side** for SDXL (512px for SD1.5) — aspect bucketing
+- At least **1024px on the short side** (the kit trains SDXL only) — aspect bucketing
   handles non-square images, not undersized ones. The *effective* floor is the aspect
   bucket, not the nominal resolution: at resolution 1024 a 4:3 image trains in the
   1152×896 bucket, so a uniform 1280×960 set is a pure downscale and passes
@@ -70,8 +70,8 @@ Per-image greyscale standard deviation (tonal contrast), edge energy (sharpness/
 proxy), and mean HSV saturation, reported as z-scores against the folder's own average —
 no fixed pass/fail thresholds; an outlier is relative to *that* folder. It tells you
 where to look, not what to do. It also flags: undersized short sides (`--min-side`,
-opt-in — the `.cmd` passes 1024 by default; use `--min-side 512` for SD1.5, or the
-bucket's short side for a non-square set, e.g. `--min-side 896` for 4:3 at 1024), symmetric
+opt-in — the `.cmd` passes 1024 by default; use the bucket's short side for a
+non-square set, e.g. `--min-side 896` for 4:3 at 1024), symmetric
 letterbox/pillarbox borders (always checked), and with `--recursive` (the `.cmd` default)
 per-subfolder counts with an `--imbalance-threshold` warning (default 0.5).
 

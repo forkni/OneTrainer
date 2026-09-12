@@ -25,7 +25,7 @@ recipes by measurement — the full case study is part of the course materials):
 | `epochs` / `batch_size` | 44 / 4 | 1188 steps on the measured Round 1 set: 55 curated images × 2 concepts = 110 items → 27 steps/epoch at batch 4 (drop-last) × 44 epochs; retune epochs to your dataset by views-per-image: `(steps × batch) ÷ images`, aim for ~40–60 |
 | `save_every` / unit | 100 / `STEP` | intermediate checkpoints are OFF by default; without them there is nothing to screen in phase 4 |
 
-## `style_sdxl.json` / `style_sd15.json` — preset + course overrides
+## `style_sdxl.json` — preset + course overrides
 
 The shipped preset's recipe (rank 16 / alpha 1.0 / LR 3e-4, `attn-mlp`, batch 4) is
 left intact — that exact config is what the course's style-LoRA numbers were measured

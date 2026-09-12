@@ -53,13 +53,13 @@ venv\Scripts\python.exe scripts\generate_captions.py ^
 | Script | Args |
 | --- | --- |
 | `00_verify_setup.cmd` | — (venv + CUDA + key-file check) |
-| `00b_print_recipe.cmd` | [`style` \| `character` \| `style_sd15`] [`--config-value K=V` ...] [`--all`] [`--json out.json`] — prints the merged recipe (defaults → preset → overlay → overrides), no GPU |
+| `00b_print_recipe.cmd` | [`style` \| `character`] [`--config-value K=V` ...] [`--all`] [`--json out.json`] — prints the merged recipe (defaults → preset → overlay → overrides), no GPU |
 | `01_dataset_hygiene.cmd` | `<image_folder>` [extra profiler flags — defaults `--recursive --min-side 1024`, yours win; use the bucket's short side for non-square sets, e.g. `--min-side 896` for 4:3] |
 | `01b_palette_screen.cmd` | `<image_folder>` [more folders] [`--z-threshold 2.0`] [`--sort a\|b\|chroma\|name`] [`--top N`] [`--json out.json`] — default `--recursive`; mean CIELAB a\*/b\* per image with folder-relative z-flags and hue reads; extra folders are compared against the first |
 | `02_check_trigger.cmd` | `<trigger_word>` [extra flags for `check_trigger_word.py`] |
 | `02_caption_auto.cmd` | `<image_folder>` `[MODEL]` (default `WD14_VIT_2`) |
 | `03_train_character_sdxl.cmd` | [extra `--config-value` flags]; needs `training_concepts\character_concepts.json` |
-| `03_train_style_sdxl.cmd` / `03_train_style_sd15.cmd` | same, with `style_concepts.json` |
+| `03_train_style_sdxl.cmd` | same, with `style_concepts.json` |
 | `04_checkpoint_screen.cmd` | `<ckpt_dir_or_file>` [...] [`--json out.json`] |
 | `05_validate_grid.cmd` | `--lora X.safetensors --trigger word` [...] |
 | `05_validate_gating.cmd` | `--lora X.safetensors --trigger word` [`--prompts-file battery.json`] |

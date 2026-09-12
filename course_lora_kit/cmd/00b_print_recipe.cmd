@@ -9,7 +9,6 @@ rem
 rem Usage:
 rem   00b_print_recipe.cmd                 (style SDXL recipe, the masterclass default)
 rem   00b_print_recipe.cmd character       (character SDXL recipe)
-rem   00b_print_recipe.cmd style_sd15      (style SD1.5 recipe)
 rem   00b_print_recipe.cmd style --config-value epochs=30   (see an override applied)
 rem Extra args after the recipe name are forwarded (--all, --json out.json, --config-value K=V).
 
@@ -23,11 +22,8 @@ if /i "%RECIPE%"=="style" (
 ) else if /i "%RECIPE%"=="character" (
     set "PRESET=training_presets\SDXL\#sdxl 1.0 LoRA.json"
     set "OVERLAY=course_lora_kit\configs\character_sdxl.json"
-) else if /i "%RECIPE%"=="style_sd15" (
-    set "PRESET=training_presets\SD1.5\#sd 1.5 LoRA.json"
-    set "OVERLAY=course_lora_kit\configs\style_sd15.json"
 ) else (
-    echo [course_lora_kit] Unknown recipe "%RECIPE%" -- use style, character or style_sd15.
+    echo [course_lora_kit] Unknown recipe "%RECIPE%" -- use style or character.
     pause
     exit /b 1
 )

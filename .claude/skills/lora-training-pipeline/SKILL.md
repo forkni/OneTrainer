@@ -40,7 +40,7 @@ existing virtual environment.
 - The deliverable is a `.safetensors` LoRA that works in a *real-time* component at 1–4
   denoising steps — validation is not done until it's been judged at the real step count
   and resolution, not just in a 25-step image tool.
-- Training runs on SDXL **base** 1.0 (or SD1.5), never on a turbo/distilled checkpoint —
+- Training runs on SDXL **base** 1.0 (the kit's only track), never on a turbo/distilled checkpoint —
   training directly on the sprinter breaks its few-step behavior.
 - Commands run from the repo root; the `.cmd` scripts handle venv and `HF_HOME`.
   Run with arguments from a terminal, or double-click with no arguments — the scripts

@@ -39,7 +39,7 @@ handled). The window pauses at the end so you can read the output.
 | 0. Setup | Install OneTrainer, verify venv + CUDA; print the merged recipe before training | `cmd\00_verify_setup.cmd`, `cmd\00b_print_recipe.cmd` |
 | 1. Dataset prep | Curate images; screen for outliers, undersized frames, letterbox bars, subfolder imbalance; then the palette screen (mean a\*/b\* per image, kept vs dropped) | `cmd\01_dataset_hygiene.cmd`, `cmd\01b_palette_screen.cmd` |
 | 2. Captioning | Check the trigger word is free of loaded meaning; auto-caption, then the by-hand pass; set up the contrastive concept | `cmd\02_check_trigger.cmd`, `cmd\02_caption_auto.cmd` |
-| 3. Training | Shipped preset + course overlay config | `cmd\03_train_character_sdxl.cmd`, `cmd\03_train_style_sdxl.cmd`, `cmd\03_train_style_sd15.cmd` |
+| 3. Training | Shipped SDXL preset + course overlay config (the kit trains SDXL only) | `cmd\03_train_character_sdxl.cmd`, `cmd\03_train_style_sdxl.cmd` |
 | 4. Checkpoint screening | Rendering-free weight-delta screen of the whole sweep (no GPU) | `cmd\04_checkpoint_screen.cmd` |
 | 5. Validation | Render checks: 2×2 grid, gating measure, checkpoint sweep, seed batch (one checkpoint, several seeds, LoRA on/off, colour-drift number per render), identity scoring; colour-drift metric over a sweep | `cmd\05_validate_*.cmd`, `scripts\color_stats.py` |
 | 6. Deploy | Stage the pick (norm recompute, copy, SHA-256), then load it into your real-time component and judge at real step counts | `cmd\06_stage_pick.cmd`, then the course repo — see Appendix D |
@@ -49,7 +49,7 @@ handled). The window pauses at the end so you can read the output.
 - `cmd\` — one `.cmd` per phase; they all run in OneTrainer's own venv and layer the
   shipped training presets under the course configs.
 - `configs\` — sparse overlay configs. `character_sdxl.json` is the course's **measured**
-  character recipe (the Round 1 "A2" winner); the style configs keep the shipped preset's
+  character recipe (the Round 1 "A2" winner); the style config keeps the shipped preset's
   rank/alpha/LR and pin the dials it leaves unset or defaults badly (warmup, Min-SNR +
   offset noise, bf16, checkpointing) — the Round 2 "S0b" recipe. Two concepts templates:
   character (flip off) and style (flip on). See `configs\README.md`.
@@ -67,7 +67,7 @@ handled). The window pauses at the end so you can read the output.
 ## Model downloads
 
 The `.cmd` scripts set `HF_HOME` to `workspace\hf_cache` (inside this repo, gitignored)
-unless you've already set it — so the SDXL/SD1.5 base models download once, in one
+unless you've already set it — so the SDXL base model downloads once, in one
 predictable place. If you already have the models cached elsewhere, set `HF_HOME` to that
 location before running. The validation scripts in `scripts\` load with
 `local_files_only=True` — they use the cache but won't populate it. They also resolve the
