@@ -1,7 +1,9 @@
 # Phase 1 — Dataset prep
 
-Script: `course_lora_kit\cmd\01_dataset_hygiene.cmd <image_folder>` (wraps
-`course_lora_kit/scripts/dataset_hygiene_profiler.py`).
+Scripts: `course_lora_kit\cmd\01_dataset_hygiene.cmd <image_folder>` (wraps
+`course_lora_kit/scripts/dataset_hygiene_profiler.py`), then
+`course_lora_kit\cmd\01b_palette_screen.cmd <image_folder> [dropped_folder]` (wraps
+`course_lora_kit/scripts/palette_ab_stats.py`, the palette screen below).
 
 ## How many images, and which
 
@@ -76,3 +78,21 @@ per-subfolder counts with an `--imbalance-threshold` warning (default 0.5).
 Healthy signal: no image beyond the z-threshold you'd struggle to explain, no letterbox
 flags, subfolder counts close. Investigate every flag before captioning — one wrong-toned
 photo quietly drags the whole average.
+
+## The palette screen (`01b_palette_screen.cmd`)
+
+The hygiene profiler reads tone, sharpness and saturation; it does not read *which* colour.
+`palette_ab_stats.py` applies the statistic the seed-batch validator applies to renders
+(`color_stats.py`) to the dataset instead: per image the mean CIELAB a\* (red > 0, green < 0)
+and b\* (yellow > 0, blue < 0), z-scored against the folder's own mean, with a coarse hue read
+(orange / red / magenta / purple / blue / cyan / green / yellow, `neutral` at low chroma) and,
+with `--recursive` (the `.cmd` default), a per-subfolder mean block. Pass a second folder and
+it prints the delta of mean a\*/b\* against the first — the way to see what a cut removed
+(Round 3a Aeon Flux, 2026-09-11: the five morning drops read mean a\* +16.8 against the kept
+48's +5.95, i.e. the cut took out the red-leaning frames; two kept frames still flag at
+|z| ≥ 2, one purple and one deep-blue night frame, both kept after viewing).
+
+Read it like the profiler: the flags are folder-relative, not pass/fail, and they describe
+the dataset only — nothing here predicts what a trained LoRA renders. A style set whose frames
+fall on one side of an axis is a palette, not a defect; a single frame far from the rest on
+an axis the style does not use is the thing to look at.

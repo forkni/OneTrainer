@@ -51,7 +51,7 @@ existing virtual environment.
 | Phase | Script | Reference |
 | --- | --- | --- |
 | 0. Setup | `course_lora_kit\cmd\00_verify_setup.cmd`, then `00b_print_recipe.cmd` | (this file) — the recipe printer shows every dial after the preset/overlay merge; check `train_dtype = BFLOAT_16` before a style run |
-| 1. Dataset prep | `course_lora_kit\cmd\01_dataset_hygiene.cmd` | `references/01-dataset-prep.md` |
+| 1. Dataset prep | `course_lora_kit\cmd\01_dataset_hygiene.cmd`, then `01b_palette_screen.cmd` | `references/01-dataset-prep.md` |
 | 2. Captioning | `course_lora_kit\cmd\02_check_trigger.cmd`, then `02_caption_auto.cmd` | `references/02-captioning.md` — trigger word (and its pre-check script), prefix trap, character captioning rule |
 | 3. Training | `course_lora_kit\cmd\03_train_*.cmd` | `references/03-training-recipes.md` — the measured character recipe, preset decode, views-per-image |
 | 4. Checkpoint screening | `course_lora_kit\cmd\04_checkpoint_screen.cmd` | `references/04-checkpoint-screening.md` — rendering-free ‖ΔW‖_F screen, what it can and cannot see |

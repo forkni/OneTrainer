@@ -37,7 +37,7 @@ handled). The window pauses at the end so you can read the output.
 | Phase | What you do | Script |
 | --- | --- | --- |
 | 0. Setup | Install OneTrainer, verify venv + CUDA; print the merged recipe before training | `cmd\00_verify_setup.cmd`, `cmd\00b_print_recipe.cmd` |
-| 1. Dataset prep | Curate images; screen for outliers, undersized frames, letterbox bars, subfolder imbalance | `cmd\01_dataset_hygiene.cmd` |
+| 1. Dataset prep | Curate images; screen for outliers, undersized frames, letterbox bars, subfolder imbalance; then the palette screen (mean a\*/b\* per image, kept vs dropped) | `cmd\01_dataset_hygiene.cmd`, `cmd\01b_palette_screen.cmd` |
 | 2. Captioning | Check the trigger word is free of loaded meaning; auto-caption, then the by-hand pass; set up the contrastive concept | `cmd\02_check_trigger.cmd`, `cmd\02_caption_auto.cmd` |
 | 3. Training | Shipped preset + course overlay config | `cmd\03_train_character_sdxl.cmd`, `cmd\03_train_style_sdxl.cmd`, `cmd\03_train_style_sd15.cmd` |
 | 4. Checkpoint screening | Rendering-free weight-delta screen of the whole sweep (no GPU) | `cmd\04_checkpoint_screen.cmd` |
@@ -53,9 +53,9 @@ handled). The window pauses at the end so you can read the output.
   rank/alpha/LR and pin the dials it leaves unset or defaults badly (warmup, Min-SNR +
   offset noise, bf16, checkpointing) — the Round 2 "S0b" recipe. Two concepts templates:
   character (flip off) and style (flip on). See `configs\README.md`.
-- `scripts\` — the course's twelve measurement scripts (trigger-word check, dataset
-  hygiene, effective-config printer, checkpoint norm analysis, gating, seed batch,
-  identity, colour drift, checkpoint staging). Eleven mirror the course repo's
+- `scripts\` — the course's thirteen measurement scripts (trigger-word check, dataset
+  hygiene, palette screen, effective-config printer, checkpoint norm analysis, gating,
+  seed batch, identity, colour drift, checkpoint staging). Twelve mirror the course repo's
   `course_v3/appendices/assets/` byte for byte;
   `print_effective_config.py` is fork-only because it imports OneTrainer. The two
   StreamDiffusion-side checks (`test_lora_graph_check.py`, `test_lora_sanity.py`) stay in
