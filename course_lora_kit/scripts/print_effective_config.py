@@ -35,7 +35,7 @@ RECIPE_KEYS = [
     ("base_model_name", "HF id or path of the base model"),
     ("training_method", "LORA expected"),
     ("layer_filter_preset", "which layers get adapters (attn-mlp = 722 on SDXL)"),
-    ("layer_filter", "custom layer filter (empty = use the preset)"),
+    ("layer_filter", "the filter the trainer actually applies (ModuleFilter.create reads only this; empty = ALL layers, the preset label alone does nothing)"),
     ("lora_rank", "r"),
     ("lora_alpha", "alpha; alpha/r is the effective scale"),
     ("lora_weight_dtype", "adapter parameter dtype"),

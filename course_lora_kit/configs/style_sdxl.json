@@ -3,6 +3,7 @@
     "cache_dir": "workspace/style_sdxl/cache",
     "output_model_destination": "models/lora_style_sdxl.safetensors",
     "concept_file_name": "training_concepts/style_concepts.json",
+    "layer_filter": "attentions",
     "samples": [],
     "learning_rate_warmup_steps": 30.0,
     "loss_weight_fn": "MIN_SNR_GAMMA",
