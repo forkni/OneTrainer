@@ -70,7 +70,9 @@ set /p "FINALSTEP=True final step count (from your run's log/config -- do not gu
 if not defined FINALSTEP goto :ask_step
 echo.
 
-"%VENV_PY%" "%REPO_ROOT%\course_lora_kit\scripts\test_lora_checkpoint_sweep.py" --ckpt-dir "%CKPTDIR%" --final "%FINAL%" --trigger "%TRIGGER%" --final-step %FINALSTEP%
+echo Output folder: %LORA_ROOT%\outputs\sweep
+echo.
+"%VENV_PY%" "%REPO_ROOT%\course_lora_kit\scripts\test_lora_checkpoint_sweep.py" --ckpt-dir "%CKPTDIR%" --final "%FINAL%" --trigger "%TRIGGER%" --final-step %FINALSTEP% --output-dir "%LORA_ROOT%\outputs\sweep"
 goto :finish
 
 :no_input

@@ -67,7 +67,9 @@ if not exist "%REFDIR%" (
 )
 echo.
 
-"%VENV_PY%" "%REPO_ROOT%\course_lora_kit\scripts\test_lora_identity_consistency.py" --lora "%LABEL%=%LORA%" --reference-dir "%REFDIR%"
+echo Output folder: %LORA_ROOT%\outputs\identity_consistency
+echo.
+"%VENV_PY%" "%REPO_ROOT%\course_lora_kit\scripts\test_lora_identity_consistency.py" --lora "%LABEL%=%LORA%" --reference-dir "%REFDIR%" --output-dir "%LORA_ROOT%\outputs\identity_consistency"
 goto :finish
 
 :no_input

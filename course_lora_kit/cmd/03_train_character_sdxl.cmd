@@ -16,7 +16,10 @@ if not exist "%CONCEPTS%" (
     echo [course_lora_kit] No concepts file at:
     echo     %CONCEPTS%
     echo.
-    echo Create it from the shipped template:
+    echo Run course_lora_kit\cmd\00_verify_setup.cmd first: it asks for your LORA_ROOT
+    echo once and writes this file pointing at %%LORA_ROOT%%\dataset\trigger and \notrigger.
+    echo.
+    echo Or create it by hand from the shipped template:
     echo   1. copy course_lora_kit\configs\concepts_contrastive_template.json ^
 to training_concepts\character_concepts.json
     echo   2. edit the two "path" fields: concept 1 ^(STANDARD^) points at your

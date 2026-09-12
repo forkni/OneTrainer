@@ -24,7 +24,8 @@ goto :finish
 echo [course_lora_kit] Stage a picked checkpoint ^(verify, copy, hash^).
 echo.
 echo Tip: right-click a file or folder in Explorer, "Copy as path", then
-echo right-click in this window to paste it.
+echo right-click in this window to paste it. Set COMFY_LORAS_DIR in
+echo course_lora_kit\local_paths.cmd to get a default destination here.
 echo.
 
 :ask_lora
@@ -50,7 +51,12 @@ if not defined LABEL goto :ask_label
 set /a ASKED+=1
 if %ASKED% gtr 20 goto :no_input
 set "DEST="
-set /p "DEST=Destination loras folder: "
+if defined COMFY_LORAS_DIR (
+    set /p "DEST=Destination loras folder [%COMFY_LORAS_DIR%]: "
+    if not defined DEST set "DEST=%COMFY_LORAS_DIR%"
+) else (
+    set /p "DEST=Destination loras folder: "
+)
 if not defined DEST goto :ask_dest
 set "DEST=%DEST:"=%"
 

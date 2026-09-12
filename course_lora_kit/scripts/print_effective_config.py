@@ -141,8 +141,12 @@ def main():
 
     rows = []
     if args.all:
-        for k in sorted(config.to_dict()):
-            rows.append((k, resolve(config, k), ""))
+        as_dict = config.to_dict()
+        for k in sorted(as_dict):
+            try:
+                rows.append((k, resolve(config, k), ""))
+            except AttributeError:  # serialisation-only keys such as __version
+                rows.append((k, as_dict[k], ""))
     else:
         for k, note in RECIPE_KEYS:
             try:

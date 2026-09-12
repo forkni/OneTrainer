@@ -63,7 +63,9 @@ if not exist "%REFDIR%" (
 )
 echo.
 
-"%VENV_PY%" "%REPO_ROOT%\course_lora_kit\scripts\test_lora_identity_score.py" --render "%LABEL%=%RENDER%" --reference-dir "%REFDIR%"
+echo Output folder: %LORA_ROOT%\outputs\identity_score
+echo.
+"%VENV_PY%" "%REPO_ROOT%\course_lora_kit\scripts\test_lora_identity_score.py" --render "%LABEL%=%RENDER%" --reference-dir "%REFDIR%" --output-dir "%LORA_ROOT%\outputs\identity_score"
 goto :finish
 
 :no_input

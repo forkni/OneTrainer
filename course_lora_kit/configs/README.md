@@ -34,7 +34,7 @@ overrides three inherited defaults that measured badly.
 
 | Field | Value | Why |
 | --- | --- | --- |
-| `epochs` / `save_every` | 50 / 100 `STEP` | a checkpoint budget, not a training target — Round 2 measured the usable window ending near epoch 20 on a 48-image set; the norm screen finds yours |
+| `epochs` / `save_every` | 50 / 100 `STEP` | a checkpoint budget, not a training target — Round 2 measured the knee near epoch 20 on a 48-image set, and Round 3a (2026-09-12) kept improving to epoch 45 on the curated 50-image set with the same recipe; the norm screen and the sweep find yours |
 | `learning_rate_warmup_steps` | 30.0 | the inherited default is 200 *steps*. Round 2 measured that default as an ablation arm (S1): 200 of 1,200 steps spent ramping suppressed early learning by 56–66% at matched checkpoints and the deficit never closed |
 | `loss_weight_fn` / `loss_weight_strength` / `offset_noise_weight` | `MIN_SNR_GAMMA` / 5.0 / 0.03 | the inherited `CONSTANT` / 0.0 drifted magenta per seed; S0b cut the step-1099 render's mean CIELAB a\* from 31.0 to 12.0 at the same gating (`scripts\color_stats.py` is the metric) |
 | `train_dtype` / `fallback_train_dtype` | `BFLOAT_16` / `BFLOAT_16` | neither the preset nor OneTrainer's default sets bf16 (`train_dtype` defaults to `FLOAT_16`, `TrainConfig.py:1074`; the fallback already defaults to `BFLOAT_16`, `:1075`). The measured S0b run trained bf16, so the overlay pins both — unpinned, the same overlay trained fp16 for a while and nobody noticed. `cmd\00b_print_recipe.cmd` shows the merged result |
@@ -48,9 +48,15 @@ the six-arm ablation these come from.
 
 Two templates, identical except for one augmentation switch (below):
 `concepts_contrastive_template.json` for the character track,
-`concepts_contrastive_template_style.json` for the style track. Copy the right one to
-`training_concepts/` (gitignored, i.e. yours) under the name the training script expects
-— `character_concepts.json` or `style_concepts.json` — then edit the two `"path"` fields.
+`concepts_contrastive_template_style.json` for the style track. `cmd\00_verify_setup.cmd`
+does the copy for you: on its first run it asks once where your LoRA work lives
+(`LORA_ROOT`, remembered in the gitignored `course_lora_kit\local_paths.cmd`), creates
+`%LORA_ROOT%\dataset\trigger` and `\notrigger`, and writes both files into
+`training_concepts/` (gitignored, i.e. yours) under the names the training scripts expect
+— `character_concepts.json` and `style_concepts.json` — with their two `"path"` fields
+pointing at those folders (`scripts\init_concepts.py` does the writing; it never overwrites
+an existing file). Edit the paths only if your dataset lives elsewhere, or do the copy by
+hand from the template.
 
 Each defines **two concepts over the same images**:
 

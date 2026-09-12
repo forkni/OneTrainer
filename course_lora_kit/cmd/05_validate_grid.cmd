@@ -48,7 +48,9 @@ set /p "TRIGGER=Trigger word (copy it out of a caption file -- do not retype it)
 if not defined TRIGGER goto :ask_trigger
 echo.
 
-"%VENV_PY%" "%REPO_ROOT%\course_lora_kit\scripts\test_lora_grid_sdxl_base.py" --lora "%LORA%" --trigger "%TRIGGER%"
+echo Output folder: %LORA_ROOT%\outputs\grid
+echo.
+"%VENV_PY%" "%REPO_ROOT%\course_lora_kit\scripts\test_lora_grid_sdxl_base.py" --lora "%LORA%" --trigger "%TRIGGER%" --output-dir "%LORA_ROOT%\outputs\grid"
 goto :finish
 
 :no_input

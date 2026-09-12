@@ -54,7 +54,9 @@ set /p "SEEDS=How many seeds [4]: "
 if not defined SEEDS set "SEEDS=4"
 echo.
 
-"%VENV_PY%" "%REPO_ROOT%\course_lora_kit\scripts\test_lora_seed_batch.py" --lora "%LORA%" --trigger "%TRIGGER%" --seeds %SEEDS%
+echo Output folder: %LORA_ROOT%\outputs\seed_batch
+echo.
+"%VENV_PY%" "%REPO_ROOT%\course_lora_kit\scripts\test_lora_seed_batch.py" --lora "%LORA%" --trigger "%TRIGGER%" --seeds %SEEDS% --output-dir "%LORA_ROOT%\outputs\seed_batch"
 goto :finish
 
 :no_input

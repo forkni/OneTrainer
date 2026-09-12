@@ -26,6 +26,15 @@ install.bat
 course_lora_kit\cmd\00_verify_setup.cmd
 ```
 
+The setup script asks one question on its first run: where your LoRA work should live
+(`LORA_ROOT` — one folder for datasets, validation outputs and staged picks; press Enter
+to keep it inside the checkout). It remembers the answer in the gitignored
+`course_lora_kit\local_paths.cmd`, creates `%LORA_ROOT%\dataset\trigger` and
+`\notrigger`, and writes both concepts files pointing at them, so no path is typed twice
+and nothing machine-specific is ever committed. Optional: add `COMFY_LORAS_DIR` to the same
+file (see `local_paths.cmd.example`) and `06_stage_pick.cmd` offers it as the default
+destination.
+
 Then work through the phases. Every script works two ways: run it from a terminal with
 arguments (usage lines are at the top of each script), or just double-click it in
 Explorer — with no arguments it switches to an interactive mode that asks for the paths
@@ -36,7 +45,7 @@ handled). The window pauses at the end so you can read the output.
 
 | Phase | What you do | Script |
 | --- | --- | --- |
-| 0. Setup | Install OneTrainer, verify venv + CUDA; print the merged recipe before training | `cmd\00_verify_setup.cmd`, `cmd\00b_print_recipe.cmd` |
+| 0. Setup | Install OneTrainer, verify venv + CUDA; set `LORA_ROOT` once (dataset folders + concepts files written for you); print the merged recipe before training | `cmd\00_verify_setup.cmd`, `cmd\00b_print_recipe.cmd` |
 | 1. Dataset prep | Curate images; screen for outliers, undersized frames, letterbox bars, subfolder imbalance; then the palette screen (mean a\*/b\* per image, kept vs dropped) | `cmd\01_dataset_hygiene.cmd`, `cmd\01b_palette_screen.cmd` |
 | 2. Captioning | Check the trigger word is free of loaded meaning; auto-caption, then the by-hand pass; set up the contrastive concept | `cmd\02_check_trigger.cmd`, `cmd\02_caption_auto.cmd` |
 | 3. Training | Shipped SDXL preset + course overlay config (the kit trains SDXL only) | `cmd\03_train_character_sdxl.cmd`, `cmd\03_train_style_sdxl.cmd` |
@@ -55,7 +64,8 @@ handled). The window pauses at the end so you can read the output.
   character (flip off) and style (flip on). See `configs\README.md`.
 - `scripts\` — the course's thirteen measurement scripts (trigger-word check, dataset
   hygiene, palette screen, effective-config printer, checkpoint norm analysis, gating,
-  seed batch, identity, colour drift, checkpoint staging). Twelve mirror the course repo's
+  seed batch, identity, colour drift, checkpoint staging) plus `init_concepts.py`, which
+  writes your concepts files from the templates. Thirteen mirror the course repo's
   `course_v3/appendices/assets/` byte for byte;
   `print_effective_config.py` is fork-only because it imports OneTrainer. The two
   StreamDiffusion-side checks (`test_lora_graph_check.py`, `test_lora_sanity.py`) stay in
@@ -63,9 +73,9 @@ handled). The window pauses at the end so you can read the output.
   prints its own `Column key:` (or `reading:`) block defining every field it just printed,
   at the end of its own run; the course's Appendix H collects the same definitions in
   *What the columns mean*, grouped by what the instrument reads rather than by script.
-- `.claude\skills\lora-training-pipeline\` (repo root) — the agent skill + nine
-  reference files holding the deep detail: full recipe decodes, the Round 1 and Round 2
-  case studies, the contrastive-concept method, screening thresholds, CLI cheatsheet.
+- `.claude\skills\lora-training-pipeline\` (repo root) — the agent skill + ten
+  reference files holding the deep detail: full recipe decodes, the Round 1, Round 2 and
+  Round 3 case studies, the contrastive-concept method, screening thresholds, CLI cheatsheet.
 
 ## Model downloads
 
@@ -80,10 +90,9 @@ and refuses a partial snapshot offline, even one that has every file diffusers n
 found 2026-09-11 on the cache that had rendered all of Round 2. Relative `--output-dir` /
 `--json` paths resolve against the directory you run a wrapper from, not the script's
 folder. The first *training*
-run (or a one-off `transformers`/`diffusers` download) is what fills it. The two base
-models the presets target (`stabilityai/stable-diffusion-xl-base-1.0`,
-`stable-diffusion-v1-5/stable-diffusion-v1-5`) are public; no Hugging Face token is
-needed for them. The identity scripts additionally need `facebook/dinov2-base` (and
+run (or a one-off `transformers`/`diffusers` download) is what fills it. The base model
+the presets target (`stabilityai/stable-diffusion-xl-base-1.0`) is public; no Hugging
+Face token is needed for it. The identity scripts additionally need `facebook/dinov2-base` (and
 `openai/clip-vit-base-patch32` for the consistency script) cached the same way.
 
 ## Provenance

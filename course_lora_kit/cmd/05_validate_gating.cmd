@@ -53,7 +53,9 @@ set /p "TRIGGER=Trigger word (copy it out of a caption file -- do not retype it)
 if not defined TRIGGER goto :ask_trigger
 echo.
 
-"%VENV_PY%" "%REPO_ROOT%\course_lora_kit\scripts\test_lora_gating_measure.py" --lora "%LORA%" --trigger "%TRIGGER%"
+echo Output folder: %LORA_ROOT%\outputs\gating
+echo.
+"%VENV_PY%" "%REPO_ROOT%\course_lora_kit\scripts\test_lora_gating_measure.py" --lora "%LORA%" --trigger "%TRIGGER%" --output-dir "%LORA_ROOT%\outputs\gating"
 goto :finish
 
 :no_input

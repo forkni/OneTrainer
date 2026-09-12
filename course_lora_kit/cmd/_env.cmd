@@ -7,6 +7,9 @@ rem   REPO_ROOT  -- the OneTrainer checkout root (resolved from this file's loca
 rem   VENV_PY    -- OneTrainer's own venv python
 rem   HF_HOME    -- only if not already set; keeps Hugging Face downloads in one
 rem                 predictable, gitignored place instead of scattering them per-user.
+rem   LORA_ROOT  -- where your datasets, outputs and staged picks live; read from
+rem                 course_lora_kit\local_paths.cmd (set once), else workspace\lora_root.
+rem   COMFY_LORAS_DIR (optional, from local_paths.cmd) -- default destination for 06_stage_pick.
 
 rem Double-clicked directly? There is nothing to run -- explain instead of
 rem flashing a window shut. %cmdcmdline% contains this file's name only when
@@ -35,5 +38,12 @@ if not exist "%VENV_PY%" (
 )
 
 if not defined HF_HOME set "HF_HOME=%REPO_ROOT%\workspace\hf_cache"
+
+rem Your own folders, set once: course_lora_kit\local_paths.cmd (gitignored; created by
+rem 00_verify_setup.cmd, or copy local_paths.cmd.example). A variable already set in the
+rem environment wins because that file uses `if not defined`. Without the file the kit
+rem still works -- everything lands under workspace\lora_root in the checkout.
+if exist "%REPO_ROOT%\course_lora_kit\local_paths.cmd" call "%REPO_ROOT%\course_lora_kit\local_paths.cmd"
+if not defined LORA_ROOT set "LORA_ROOT=%REPO_ROOT%\workspace\lora_root"
 
 exit /b 0
