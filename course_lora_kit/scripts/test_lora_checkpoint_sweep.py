@@ -264,8 +264,10 @@ def main() -> int:
     print(f"Saved contact sheet: {contact_path}")
     print(f"Saved summary: {summary_path}")
     if not args.no_control:
-        print("d_control is mean|triggered - untriggered| at each checkpoint -- watch for it")
-        print("trending toward 0 across the sweep (gating leaking) rather than staying stable.")
+        print("Column key: d_control (printed on each tile as d_ctrl=) is the mean per-pixel-per-")
+        print("channel |RGB delta|, 0-255 scale, between the triggered render and the SAME seed")
+        print("with the trigger word omitted (both LoRA on) -- watch for it trending toward 0")
+        print("across the sweep (gating leaking) rather than staying stable.")
     print("=" * 60)
     return 0
 

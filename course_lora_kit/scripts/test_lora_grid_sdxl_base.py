@@ -196,6 +196,7 @@ def main() -> int:
     for prompt_label, prompt, grid_path in grid_paths:
         print(f"[{prompt_label}] prompt={prompt!r} -> {grid_path}")
     print("Layout: TL=no LoRA/no trigger  TR=no LoRA/trigger  BL=LoRA/no trigger  BR=LoRA/trigger")
+    print("\"no LoRA\" is cross_attention_kwargs scale=0.0, not an unloaded adapter.")
     print("=" * 60)
     return 0
 

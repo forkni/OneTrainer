@@ -442,6 +442,14 @@ def main() -> int:
         group_results[name] = {"checkpoints": rows, "endpoint_cosine": endpoint_cosine}
 
     print()
+    print("Column key:")
+    print("  ||dW||_F      Frobenius norm of the whole learned weight delta -- overall size of the edit")
+    print("  rank/a/scale  this file's own rank / alpha / (alpha divided by rank)")
+    print("  cos_prev      cosine vs the PREVIOUS save's delta: how much the edit ROTATED, not grew")
+    print("  growth        this save's ||dW||_F divided by the previous save's")
+    print("  KNEE          growth >= 1.5x this sweep's median growth -- the one config-free signal")
+    print("  band          this norm projected onto the reference scale below, then bucketed")
+    print()
     print(f"Reference values (rank 16, alpha 1.0 -> scale {REF_SCALE:.4f}, attn-mlp layer filter):")
     print(f"  clean <= {REF_CLEAN_MAX}, collapsed >= {REF_COLLAPSED_MIN}, adjacent cosine ~{REF_ADJACENT_COSINE},")
     print(f"  overcooked-sweep endpoint cosine {REF_ENDPOINT_COSINE}.")
@@ -449,6 +457,10 @@ def main() -> int:
     print("its own rank/alpha (see classify() docstring) -- a first-order approximation, not")
     print("separately measured at other scales. What transfers with no projection needed: a")
     print("KNEE in the growth column, and a drop in adjacent-checkpoint cosine.")
+    print("The bands are recipe-local, not universal. Change the dataset, the step count or the")
+    print("loss weighting and they move with it: Round 2's healthy pick (arm S0b) reads 8.1 --")
+    print("past the \"collapsed\" number above -- and renders clean. Read KNEE and cos_prev first,")
+    print("band second.")
     print("=" * 100)
 
     if args.json:

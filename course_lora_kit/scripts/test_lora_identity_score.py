@@ -228,6 +228,11 @@ def main() -> int:
         rc = f"{r['render_consistency']:.4f}" if r["render_consistency"] is not None else "n<2"
         print(f"{label:<14} {r['n']:>3} {mean:>14} {std:>8} {rc:>19}")
     print("=" * 88)
+    print("Column key (DINOv2 cosine, 0-1 scale, higher = more similar):")
+    print("  identity cos       one render vs one reference image (per-row table above)")
+    print("  mean identity      mean of that label's identity-cos column")
+    print("  std                sd of that label's identity-cos column (n<2 -> n<2, not a number)")
+    print("  render_consistency mean pairwise cosine among that label's OWN renders (n<2 -> n<2)")
     print("A label with high mean identity but low render_consistency has at least one image that")
     print("drifted off-identity -- the mean alone hides this. Treat n<3-per-label numbers as directional,")
     print("not conclusive; one odd render swings a small mean a lot.")

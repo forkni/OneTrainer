@@ -305,6 +305,16 @@ def main() -> int:
     print(f"Mean d_gate/d_leak, net of null:  {summary['mean_ratio_out_of_domain_net_of_null']}")
     print("  net-of-null ~0   -> trigger is inert once token-insertion noise is subtracted")
     print("  net-of-null >>1  -> trigger is doing real gating work beyond token-shift noise")
+    print("Column key: each d_* is a mean |RGB delta| per pixel/channel, 0-255 scale, between")
+    print("two renders at the same seed -- off=LoRA scale 0.0, on=LoRA scale --weight.")
+    print("  d_leak  on/no-trig vs off/no-trig  -- style present with the trigger absent")
+    print("  d_gate  on/trig    vs on/no-trig   -- naive trigger effect (LoRA loaded)")
+    print("  d_null  off/trig   vs off/no-trig  -- token-insertion noise floor, LoRA off")
+    print("  d_gate_net = max(0, d_gate - d_null); ratio_net = d_gate_net / d_leak")
+    print("  sat(off/offtrig/notrig/trig)  mean HSV saturation of each render, 0-255")
+    print("The two means above average OUT-OF-DOMAIN prompts only -- in-domain rows print")
+    print("above but don't feed mean_ratio_*, since style can leak into an in-domain")
+    print("prompt even under a perfectly gated LoRA.")
     print("=" * 70)
     return 0
 

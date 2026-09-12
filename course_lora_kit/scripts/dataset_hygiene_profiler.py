@@ -311,10 +311,16 @@ def main() -> int:
         print(f"Undersized (short side < {args.min_side}px): {len(undersized)}/{len(rows)}")
     print(f"Letterboxed/pillarboxed (symmetric matching-color border, >=5% per side): {len(bordered)}/{len(rows)}")
     print("=" * 110)
-    print("Column key: U=undersized L=letterboxed P=pillarboxed. z-flags are relative to this")
-    print("folder's own average, not a universal pass/fail cutoff -- look at what got flagged")
-    print("before deciding whether to drop, recrop, upscale, or recaption it. Undersized/")
-    print("bordered flags are absolute (not relative to the folder).")
+    print("Column key:")
+    print("  grey_std  std of the greyscale channel -- overall tonal contrast, 0-255 scale")
+    print("  edge_e    mean gradient magnitude of the greyscale image -- a sharpness/detail proxy")
+    print("  sat       mean HSV saturation, 0-255 scale")
+    print("  z_std/z_edge/z_sat   each metric's z-score against THIS folder's own mean and sd")
+    print("  short     shorter side in pixels; U marks it below --min-side (absolute, not relative)")
+    print("  border    L=letterboxed P=pillarboxed -- symmetric matching-color bars (absolute check)")
+    print("z-flags are relative to this folder's own average, not a universal pass/fail cutoff --")
+    print("look at what got flagged before deciding whether to drop, recrop, upscale, or recaption")
+    print("it. Undersized/bordered flags are absolute (not relative to the folder).")
 
     if args.recursive:
         by_subfolder: dict[str, int] = {}

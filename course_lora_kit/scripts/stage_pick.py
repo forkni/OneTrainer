@@ -104,6 +104,15 @@ def main() -> int:
 
     rel_text = f" rel_err={rel:.4f}" if rel is not None else ""
     print(
+        "Column key: modules=count of lora_down/lora_up pairs found; rank/alpha=the values every"
+    )
+    print(
+        "module carries (a set with >1 member means the checkpoint is not uniform); norm=recomputed"
+    )
+    print(
+        "||dW||_F; expected=--expected-norm; rel_err=|norm-expected|/expected, must be <= --tol."
+    )
+    print(
         f"{args.label}: modules={n_modules} rank={sorted(ranks)} alpha={sorted(alphas)} "
         f"norm={total:.3f}"
         + (f" expected={args.expected_norm}{rel_text}" if args.expected_norm is not None else "")

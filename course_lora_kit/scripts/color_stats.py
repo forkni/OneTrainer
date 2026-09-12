@@ -129,6 +129,9 @@ def main():
             if s:
                 print(f"{label:<8} {kind:<8} n={s['count']:<3} mean a* {s['mean_a']:6.2f}   mean b* {s['mean_b']:6.2f}")
     print("reading: a* > 0 is magenta, < 0 green; a LoRA-on mean far above the controls is colour drift")
+    print("Column key: a*/b* are CIELAB, averaged over every pixel of one render (b* > 0 is yellow,")
+    print("< 0 is blue). base/sweep are the same render from --baseline-dir and --sweep-dir; delta a*")
+    print("is sweep minus baseline. __control rows are the same seed with the LoRA at scale 0.0.")
 
     if args.json:
         out = {"renders": {"sweep": {k: {"a": v[0], "b": v[1]} for k, v in sweep.items()},

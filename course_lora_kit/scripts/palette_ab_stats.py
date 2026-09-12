@@ -192,8 +192,18 @@ def main(argv=None) -> int:
         args.json.write_text(json.dumps(results, indent=2), encoding="utf-8")
         print(f"\nwrote {args.json}")
     print("=" * 100)
-    print("Column key: a* +red/-green, b* +yellow/-blue, z = this folder's own mean and sd.\n"
-          "Dataset-side statistic only -- it does not predict what a trained LoRA renders.")
+    print("Column key -- every value below is a mean over all pixels of one image:")
+    print("  L*    lightness, 0 = black, 100 = white")
+    print("  a*    green(-) <-> red/magenta(+) axis; 0 is neutral grey")
+    print("  b*    blue(-)  <-> yellow(+)      axis; 0 is neutral grey")
+    print("  z_a   (this image's a* - this folder's mean a*) / this folder's sd; z_b likewise")
+    print("  hue   sector of atan2(b*, a*) for that averaged colour; \"neutral\" if hypot(a*,b*) < 8.0")
+    print("  flag  \"<<<\" = |z_a| or |z_b| >= the threshold -- a \"look at this one\", not a verdict")
+    print("Averaging cancels opposing colours, so these read the frame's overall cast, not how colourful")
+    print("it is: a red subject on a green wall can average to \"neutral\". z is folder-local -- it moves")
+    print("if you add or drop images, and a uniform grade applied to every frame is invisible to it.")
+    print("Dataset-side statistic only -- it does not predict what a trained LoRA renders.")
+    print("=" * 100)
     return 0
 
 
