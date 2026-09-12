@@ -59,7 +59,10 @@ handled). The window pauses at the end so you can read the output.
   `course_v3/appendices/assets/` byte for byte;
   `print_effective_config.py` is fork-only because it imports OneTrainer. The two
   StreamDiffusion-side checks (`test_lora_graph_check.py`, `test_lora_sanity.py`) stay in
-  the course repo because they need a StreamDiffusion checkout, not this one.
+  the course repo because they need a StreamDiffusion checkout, not this one. Every script
+  prints its own `Column key:` (or `reading:`) block defining every field it just printed,
+  at the end of its own run; the course's Appendix H collects the same definitions in
+  *What the columns mean*, grouped by what the instrument reads rather than by script.
 - `.claude\skills\lora-training-pipeline\` (repo root) — the agent skill + nine
   reference files holding the deep detail: full recipe decodes, the Round 1 and Round 2
   case studies, the contrastive-concept method, screening thresholds, CLI cheatsheet.

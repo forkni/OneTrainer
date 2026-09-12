@@ -203,6 +203,10 @@ def main(argv=None) -> int:
     print("it is: a red subject on a green wall can average to \"neutral\". z is folder-local -- it moves")
     print("if you add or drop images, and a uniform grade applied to every frame is invisible to it.")
     print("Dataset-side statistic only -- it does not predict what a trained LoRA renders.")
+    print("This script's L*/a*/b* use the legacy CIELAB piecewise constants (0.008856, 7.787);")
+    print("color_stats.py and test_lora_seed_batch.py use the exact ones (216/24389, 24389/27).")
+    print("The two differ only in extreme-shadow pixels -- not enough to change a folder's mean")
+    print("visibly, but dataset-side and render-side a*/b* are not bit-identical by construction.")
     print("=" * 100)
     return 0
 

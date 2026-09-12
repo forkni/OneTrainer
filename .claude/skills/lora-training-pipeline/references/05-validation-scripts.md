@@ -16,6 +16,11 @@ StreamDiffusion checkout; that folder's README is the canonical deep-dive). Each
 | `05_validate_identity_score.cmd` | `test_lora_identity_score.py` | Same identity metric for renders you already have (ComfyUI, component captures) |
 | (no wrapper — run in the venv) | `color_stats.py --sweep-dir <sweep> [--baseline-dir <other sweep>]` | Colour drift as a number: mean CIELAB a\* per sweep render, with a Δa\* column against another arm — the metric behind Round 2's 31.0 → 12.0 |
 
+Every script above prints its own `Column key:` (or `reading:`) block defining every
+field it just printed, at the end of its own run; the course's Appendix H mirrors the
+same definitions in *What the columns mean*, grouped by what the instrument reads rather
+than by script.
+
 All render scripts use plain `diffusers`/`torch` — none import `streamdiffusion`. Final
 judgment still happens in the real-time component at real step counts (phase 6, in the
 course's Appendix D) — these scripts validate the file, not the deployment.

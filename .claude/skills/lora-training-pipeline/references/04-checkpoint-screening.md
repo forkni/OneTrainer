@@ -2,7 +2,10 @@
 
 Script: `course_lora_kit\cmd\04_checkpoint_screen.cmd <checkpoint_dir_or_file> [...]`
 (wraps `course_lora_kit/scripts/checkpoint_norm_analyzer.py`). No GPU, no base model —
-reads the `.safetensors` files directly; a full sweep screens in under a minute.
+reads the `.safetensors` files directly; a full sweep screens in under a minute. The
+script prints its own `Column key:` (`‖dW‖_F`, `rank/a/scale`, `cos_prev`, `growth`,
+`KNEE`, `band`) at the end of every run; the course's Appendix H mirrors the same
+definitions in *What the columns mean*, grouped with the other scripts' columns.
 
 ## What it measures
 
