@@ -1,10 +1,10 @@
 ---
 name: lora-training-pipeline
-description: Guide a StreamDiffusionTD student through the course_lora_kit workflow for preparing, captioning, training, screening, and validating a OneTrainer style or character LoRA (StreamDiffusionTD course, Appendix D). Use when the user wants to prepare a dataset, caption it, train a style or character LoRA, screen checkpoints, or measure identity/gating. Use only for this course kit, not generic diffusion-training advice.
+description: Guide a StreamDiffusionTD student through the course_lora_kit workflow for preparing, captioning, training, screening, and validating a OneTrainer style or character LoRA (StreamDiffusionTD course, Appendix D; Appendix H is the style-track companion). Use when the user wants to prepare a dataset, caption it, train a style or character LoRA, screen checkpoints, or measure identity/gating. Use only for this course kit, not generic diffusion-training advice.
 compatibility: Windows (the phase wrappers are .cmd scripts). Requires the OneTrainer venv (run install.bat once first) and an NVIDIA GPU for the training and render-validation phases; phases 1 and 4 run on CPU.
 metadata:
   author: StreamDiffusionTD course
-  version: 1.4.2
+  version: 1.4.3
 ---
 
 # LoRA training pipeline (StreamDiffusionTD course kit)
@@ -56,6 +56,7 @@ existing virtual environment.
 | 3. Training | `course_lora_kit\cmd\03_train_*.cmd` | `references/03-training-recipes.md` — the measured character recipe, preset decode, views-per-image |
 | 4. Checkpoint screening | `course_lora_kit\cmd\04_checkpoint_screen.cmd` | `references/04-checkpoint-screening.md` — rendering-free ‖ΔW‖_F screen, what it can and cannot see |
 | 5. Validation | `course_lora_kit\cmd\05_validate_*.cmd` | `references/05-validation-scripts.md` — which script answers which question, plus the measurement pitfalls |
+| 6. Stage the pick | `course_lora_kit\cmd\06_stage_pick.cmd` | `references/05-validation-scripts.md` (*Which checkpoint to ship*) — recomputes ‖ΔW‖_F, rank, alpha and module count from the file, copies (never moves) it under the deploy name, SHA-256 on both sides |
 
 Cross-cutting references:
 
@@ -82,7 +83,8 @@ Cross-cutting references:
 - *"My checkpoints all look purple/magenta"* → load `round1-case-study.md` and compare
   against the colour-collapse signature before changing any dials.
 - *"Which checkpoint should I use?"* → run phase 4 on the save folder, then confirm the
-  shortlisted steps with `05_validate_sweep.cmd` (norms alone can't see colour casts).
+  shortlisted steps with `05_validate_sweep.cmd` (norms alone can't see colour casts),
+  then hand the pick over with `06_stage_pick.cmd`.
 
 ## Troubleshooting
 

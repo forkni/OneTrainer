@@ -44,6 +44,12 @@ signal**; treat the projected band as a secondary hint. (It doesn't correct for 
 either — the LoRA paper's Table 7 shows ‖ΔW‖_F falls as rank rises at comparable task
 performance, so a rank-32 arm's numbers aren't comparable to rank-16 bands on two axes.)
 
+**They are step-count- and loss-weighting-relative too.** Round 2's control arm S0 ended
+perfectly healthy at **10.71** after 1,200 steps, and the S0b working pick (min-SNR +
+offset noise) reads **8.1** — both across the old ≥ 6.70 "collapsed" line. Quote a band
+only with the step count *and recipe* it was measured at; the knee flag is the signal that
+survives. Full finding: `round2-style-case-study.md`.
+
 ## `Weight` can't fix an overcooked checkpoint
 
 The obvious question with a live `Weight` dial: if a checkpoint overcooked, just turn it

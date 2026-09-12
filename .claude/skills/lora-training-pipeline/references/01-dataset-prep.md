@@ -32,12 +32,27 @@ Scripts: `course_lora_kit\cmd\01_dataset_hygiene.cmd <image_folder>` (wraps
   1152×896 bucket, so a uniform 1280×960 set is a pure downscale and passes
   `--min-side 896`; the wrapper's default 1024 would flag every image of such a set.
 - **Don't upscale** low-resolution source to hit the floor — upscaling inflates apparent
-  sharpness the model then learns as texture; drop the image instead. One measured
-  exception: a **uniform** upscale of the *whole* set from one native size (the course's
-  style set went 640×480 → 1280×960 through RealESRGAN_x2, native 2×, no second
-  resample) — every image gets the same synthetic texture, so it becomes part of the
-  learned look rather than a per-image outlier. Mixing upscaled and native images is
-  what the rule forbids.
+  sharpness the model then learns as texture; drop the image instead. Mixing upscaled and
+  native images is what the rule forbids. One measured exception: when the *whole* source
+  is one low native size (the course's style set, 640×480 DVD screencaps), a **uniform**
+  upscale is acceptable under four conditions (Appendix H, *the uniform-upscale
+  amendment*):
+  1. *Curate first, upscale last* — every curation pass at native size, upscale only the
+     final set.
+  2. *One model, one pass, every image* — the course set went 640×480 → 1280×960 through
+     `RealESRGAN_x2` at its native 2×, no second resample. The texture it adds is trained
+     in with everything else and is invisible to a folder-relative screen; whether the
+     renders carry it is **unmeasured** (no native-resolution control exists at the 1024
+     bucket, and the bucket downscale to 1152×896 attenuates the contribution without
+     removing it).
+  3. *Run the hygiene screen on the upscaled folder* — its job is to catch a frame the
+     upscaler mangled, not what the DVD looked like.
+  4. *View three or four frames at 100% beside their natives* — haloed line art, smeared
+     gradients. No script in the pipeline sees a texture every training image shares.
+  Do not "fix" the texture by putting a tag such as "AI upscaled" into every caption: a
+  word present in every caption on both concept sides co-occurs perfectly with the trigger
+  and with every image, so the loss has nothing to contrast it against — it is the prefix
+  trap and arm S5 wearing a second word (see `02-captioning.md`).
 - **Crop letterbox/pillarbox bars off** (common with 4:3 video screencaps of anime
   sources) — a uniform matching-colour border at both edges reads to the model as "this
   is always part of the frame," and bucketing has no idea it's not content.
@@ -88,9 +103,11 @@ and b\* (yellow > 0, blue < 0), z-scored against the folder's own mean, with a c
 (orange / red / magenta / purple / blue / cyan / green / yellow, `neutral` at low chroma) and,
 with `--recursive` (the `.cmd` default), a per-subfolder mean block. Pass a second folder and
 it prints the delta of mean a\*/b\* against the first — the way to see what a cut removed
-(Round 3a Aeon Flux, 2026-09-11: the five morning drops read mean a\* +16.8 against the kept
-48's +5.95, i.e. the cut took out the red-leaning frames; two kept frames still flag at
-|z| ≥ 2, one purple and one deep-blue night frame, both kept after viewing).
+(Round 3a Aeon Flux: on 2026-09-11 the five morning drops read mean a\* +16.8 against
+the then-kept 48's +5.95, i.e. the cut took out the red-leaning frames; the final 50-image
+set reads a\* +5.21 (sd 9.15), b\* +5.95 (sd 16.62) with 5 folder-relative flags at the
+two ends of the palette — orange skies, blue nights, one red corridor — all kept after
+viewing).
 
 Read it like the profiler: the flags are folder-relative, not pass/fail, and they describe
 the dataset only — nothing here predicts what a trained LoRA renders. A style set whose frames
