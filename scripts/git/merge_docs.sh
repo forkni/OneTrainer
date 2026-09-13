@@ -1,0 +1,272 @@
+#!/usr/bin/env bash
+# merge_docs.sh - Documentation-only merge from source to target branch
+# Purpose: Merge only docs/ directory changes while ignoring code changes
+# Usage: ./scripts/git/merge_docs.sh [OPTIONS]
+#
+# Globals:
+#   SCRIPT_DIR          - Directory containing this script
+#   PROJECT_ROOT        - Auto-detected git repo root (set by _config.sh)
+#   logfile             - Set by init_logging
+#   CGW_SOURCE_BRANCH   - Source branch (default: development)
+#   CGW_TARGET_BRANCH   - Target branch (default: main)
+# Arguments:
+#   --non-interactive   Skip prompts
+#   --source <branch>   Override source branch for this invocation
+#   --target <branch>   Override target branch for this invocation
+#   -h, --help          Show help
+# Returns:
+#   0 on success, 1 on failure
+
+set -uo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/_common.sh"
+
+init_logging "merge_docs"
+ensure_no_stale_index_lock || exit 1
+
+original_branch=""
+did_mutate_worktree=0
+
+cleanup() {
+  if [[ ${did_mutate_worktree} -eq 1 ]]; then
+    echo "" | tee -a "$logfile"
+    echo "[!] Interrupted - restoring original state..." | tee -a "$logfile"
+    git restore --staged --worktree -- . 2>/dev/null || git reset --hard HEAD 2>/dev/null || true
+  fi
+  local current_branch
+  current_branch=$(git branch --show-current 2>/dev/null)
+  if [[ -n "$original_branch" ]] && [[ "$original_branch" != "$current_branch" ]]; then
+    git checkout "$original_branch" 2>/dev/null || true
+  fi
+}
+trap cleanup EXIT INT TERM
+
+main() {
+  local src_branch="${CGW_SOURCE_BRANCH}"
+  local tgt_branch="${CGW_TARGET_BRANCH}"
+
+  while [[ $# -gt 0 ]]; do
+    case "${1}" in
+      --help | -h)
+        echo "Usage: ./scripts/git/merge_docs.sh [OPTIONS]"
+        echo ""
+        echo "Merge only docs/ directory from source branch into target branch."
+        echo "Code changes are NOT included -- only files under docs/."
+        echo ""
+        echo "Options:"
+        echo "  --non-interactive   Skip prompts"
+        echo "  --source <branch>   Override source branch for this invocation"
+        echo "  --target <branch>   Override target branch for this invocation"
+        echo "  -h, --help          Show this help"
+        echo ""
+        echo "Configuration:"
+        echo "  CGW_SOURCE_BRANCH   Source branch (default: development)"
+        echo "  CGW_TARGET_BRANCH   Target branch (default: main)"
+        echo ""
+        echo "Environment:"
+        echo "  CGW_NON_INTERACTIVE=1   Same as --non-interactive"
+        echo ""
+        echo "WARNING: Replaces entire docs/ on target with docs/ from source."
+        echo "         Any docs-only changes on target not in source will be lost."
+        exit 0
+        ;;
+      --non-interactive)
+        CGW_NON_INTERACTIVE=1
+        ;;
+      --source)
+        src_branch="${2:-}"
+        if [[ -z "${src_branch}" ]]; then
+          err "--source requires a branch name"
+          exit 1
+        fi
+        shift
+        ;;
+      --target)
+        tgt_branch="${2:-}"
+        if [[ -z "${tgt_branch}" ]]; then
+          err "--target requires a branch name"
+          exit 1
+        fi
+        shift
+        ;;
+      *)
+        err "Unknown flag: $1"
+        exit 1
+        ;;
+    esac
+    shift
+  done
+
+  validate_branch_pair "${src_branch}" "${tgt_branch}"
+
+  {
+    echo "========================================="
+    echo "Documentation Merge Log"
+    echo "========================================="
+    echo "Start Time: $(date)"
+    echo "Working Directory: ${PROJECT_ROOT}"
+  } >"$logfile"
+
+  echo "=== Documentation Merge: ${src_branch} -> ${tgt_branch} ===" | tee -a "$logfile"
+  echo "" | tee -a "$logfile"
+
+  cd "${PROJECT_ROOT}" || {
+    err "Cannot find project root"
+    exit 1
+  }
+
+  # [1/7] Run validation
+  cgw_run_pre_op_validation "documentation merge" "${src_branch}" "${tgt_branch}" "$logfile" || exit 1
+  echo "" | tee -a "$logfile"
+
+  # [2/7] Store current branch and checkout target
+  log_section_start "GIT CHECKOUT TARGET" "$logfile"
+
+  original_branch=$(git branch --show-current)
+  echo "Current branch: ${original_branch}" | tee -a "$logfile"
+
+  if ! run_git_with_logging "GIT CHECKOUT" "$logfile" checkout "${tgt_branch}"; then
+    err_tee "[FAIL] Failed to checkout ${tgt_branch} branch"
+    exit 1
+  fi
+
+  log_section_end "GIT CHECKOUT TARGET" "$logfile" "0"
+  echo "" | tee -a "$logfile"
+
+  # [3/7] Check for documentation changes
+  echo "[3/7] Checking for documentation changes..."
+
+  if [[ -z "$(git diff --name-only "${tgt_branch}" "${src_branch}" -- docs/)" ]]; then
+    log_message "[!] No documentation changes found between ${tgt_branch} and ${src_branch}" "${logfile}"
+    echo ""
+    if ! cgw_confirm "Continue anyway?" --non-interactive abort; then
+      echo ""
+      log_message "Documentation merge cancelled" "${logfile}"
+      git checkout "${original_branch}"
+      exit 0
+    fi
+  fi
+
+  echo "Documentation files to be merged:"
+  git diff --name-only "${tgt_branch}" "${src_branch}" -- docs/
+  echo ""
+
+  # [4/7] Check for non-documentation changes
+  echo "[4/7] Checking for code changes..."
+  local non_docs_count
+  non_docs_count=$(git diff --name-only "${tgt_branch}" "${src_branch}" | grep -vc "^docs/")
+
+  if [[ "${non_docs_count}" -gt 0 ]]; then
+    echo "[!] WARNING: Non-documentation changes detected"
+    echo ""
+    echo "This merge will ONLY include docs/ changes."
+    echo "Other changes will remain on ${src_branch} branch."
+    echo ""
+    git diff --name-only "${tgt_branch}" "${src_branch}" | grep -v "^docs/"
+    echo ""
+    if ! cgw_confirm "Proceed with docs-only merge?" --non-interactive accept; then
+      echo ""
+      log_message "Documentation merge cancelled" "${logfile}"
+      git checkout "${original_branch}"
+      exit 0
+    fi
+  else
+    log_message "[OK] No code changes detected (docs-only merge)" "${logfile}"
+  fi
+  echo ""
+
+  # [5/7] Create pre-merge backup tag
+  log_section_start "CREATE BACKUP TAG" "$logfile"
+
+  cgw_create_backup_tag docs-merge
+  local backup_tag="${CGW_BACKUP_TAG}"
+  log_section_end "CREATE BACKUP TAG" "$logfile" "0"
+  echo "" | tee -a "$logfile"
+
+  # [6/7] Merge documentation changes
+  log_section_start "MERGE DOCUMENTATION" "$logfile"
+
+  did_mutate_worktree=1
+
+  if ! run_git_with_logging "GIT CHECKOUT DOCS" "$logfile" checkout "${src_branch}" -- docs/; then
+    err_tee "[FAIL] Failed to checkout documentation from ${src_branch}"
+    git checkout "${original_branch}" >>"$logfile" 2>&1
+    exit 1
+  fi
+
+  # Exclude local-only files (CGW_LOCAL_FILES) carried in from the source's
+  # docs/ — they must not enter the target's shared history. Each excluded path
+  # is restored to its pre-checkout state: the HEAD version if the target
+  # tracks it, otherwise removed (the checkout above created it).
+  local _local_doc
+  while IFS= read -r _local_doc; do
+    [[ -z "${_local_doc}" ]] && continue
+    echo "[!] Excluding local-only file from docs merge: ${_local_doc}" | tee -a "$logfile"
+    if git cat-file -e "HEAD:${_local_doc}" 2>/dev/null; then
+      git checkout HEAD -- "${_local_doc}" >>"$logfile" 2>&1 || true
+    else
+      git rm --cached --quiet -- "${_local_doc}" >>"$logfile" 2>&1 || true
+      rm -f -- "${_local_doc}"
+    fi
+  done < <(git diff --cached --name-only | cgw_filter_local_files)
+
+  if git diff --cached --quiet; then
+    echo "" | tee -a "$logfile"
+    echo "[!] No documentation changes to merge (docs already in sync)" | tee -a "$logfile"
+    log_section_end "MERGE DOCUMENTATION" "$logfile" "0"
+    git checkout "${original_branch}" >>"$logfile" 2>&1
+    exit 0
+  fi
+
+  echo "[OK] Documentation changes staged" | tee -a "$logfile"
+  echo "Staged files:" | tee -a "$logfile"
+  git diff --cached --name-only | tee -a "$logfile"
+  log_section_end "MERGE DOCUMENTATION" "$logfile" "0"
+  echo "" | tee -a "$logfile"
+
+  # [7/7] Commit the merge
+  log_section_start "GIT COMMIT" "$logfile"
+
+  if run_git_with_logging "GIT COMMIT DOCS" "$logfile" commit \
+    -m "docs: Sync documentation from ${src_branch}" \
+    -m "- Updated docs/ directory from ${src_branch} branch" \
+    -m "- Docs-only update (no code changes)" \
+    -m "- Backup tag: ${backup_tag}"; then
+    log_section_end "GIT COMMIT" "$logfile" "0"
+    echo "" | tee -a "$logfile"
+    {
+      echo "========================================"
+      echo "[DOCS MERGE SUMMARY]"
+      echo "========================================"
+    } | tee -a "$logfile"
+    echo "[OK] DOCUMENTATION MERGE SUCCESSFUL" | tee -a "$logfile"
+    echo "" | tee -a "$logfile"
+    line="$(git log -1 --oneline)"
+    echo "  Latest commit: ${line}" | tee -a "${logfile}"
+    echo "  Backup tag: ${backup_tag}" | tee -a "$logfile"
+    echo "" | tee -a "$logfile"
+    echo "Merged files:" | tee -a "$logfile"
+    git diff --name-only HEAD~1 HEAD | tee -a "$logfile"
+    echo "" | tee -a "$logfile"
+    echo "Next steps:" | tee -a "$logfile"
+    echo "  1. Review: git show HEAD" | tee -a "$logfile"
+    echo "  2. Push: ./scripts/git/push_validated.sh" | tee -a "$logfile"
+    echo "  Rollback: git reset --hard ${backup_tag}" | tee -a "$logfile"
+    {
+      echo ""
+      echo "End Time: $(date)"
+    } | tee -a "$logfile"
+    echo "" | tee -a "$logfile"
+    echo "Full log: $logfile"
+  else
+    log_section_end "GIT COMMIT" "$logfile" "1"
+    echo "" | tee -a "$logfile"
+    err_tee "[FAIL] Failed to commit documentation merge"
+    echo ""
+    echo "To abort: git reset --hard HEAD"
+    exit 1
+  fi
+}
+
+main "$@"

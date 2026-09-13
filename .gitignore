@@ -45,3 +45,6 @@ install_log.txt
 !.claude/skills/
 .claude/skills/*
 !.claude/skills/lora-training-pipeline/
+logs/
+.cgw.conf
+.cgw.conf.bak
