@@ -4,7 +4,7 @@ Script: `course_lora_kit\cmd\04_checkpoint_screen.cmd <checkpoint_dir_or_file> [
 (wraps `course_lora_kit/scripts/checkpoint_norm_analyzer.py`). No GPU, no base model —
 reads the `.safetensors` files directly; a full sweep screens in under a minute. The
 script prints its own `Column key:` (`‖dW‖_F`, `rank/a/scale`, `cos_prev`, `growth`,
-`KNEE`, `band`) at the end of every run; the course's Appendix H mirrors the same
+flags `KNEE` / `HOT-START` / `CONVENTION`; `band` only with `--bands`) at the end of every run; the course's Appendix H mirrors the same
 definitions in *What the columns mean*, grouped with the other scripts' columns.
 
 ## What it measures
@@ -37,10 +37,15 @@ independent group, not merged into one sweep.
 **These absolute numbers do not transfer to a different rank/alpha.** An alpha = rank
 config (the character recipe) lands roughly **16× higher** on raw ‖ΔW‖_F at the same
 effective strength, purely from the scale term — A2's healthy sweep runs 2.46 → 17.05
-and never collapses. The script projects each norm onto the reference scale
+and never collapses. With `--bands` the script projects each norm onto the reference scale
 (`norm × (0.0625 ÷ scale)`) before applying the bands, documented as a first-order
-approximation unverified at other scales. **Use the knee flag as the config-independent
-signal**; treat the projected band as a secondary hint. (It doesn't correct for *rank*
+approximation unverified at other scales; since 2026-09-12 the bands are off by default
+(Round 3's clean runs all crossed 6.70 with no collapsed checkpoint to re-measure against).
+**Use the flags as the config-independent signal**: `KNEE`, `CONVENTION` (file rank/alpha vs
+the recipe's, `--recipe <merged recipe json>`, default 16 / 1) and `HOT-START` (first save ≥ 4×
+the recipe's reference first save 0.35 on the *raw* norm, growth never accelerating after —
+the projection divides a hot start back out, which is why the flag reads raw). Treat the
+projected band as a secondary hint. (It doesn't correct for *rank*
 either — the LoRA paper's Table 7 shows ‖ΔW‖_F falls as rank rises at comparable task
 performance, so a rank-32 arm's numbers aren't comparable to rank-16 bands on two axes.)
 

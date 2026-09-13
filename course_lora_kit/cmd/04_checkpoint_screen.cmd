@@ -7,9 +7,13 @@ rem Terminal usage:
 rem   04_checkpoint_screen.cmd <checkpoint_dir_or_file> [more dirs] [--json out.json]
 rem
 rem Each directory is analyzed as its own group, so you can compare several
-rem training arms in one invocation (terminal only). Read the printed "knee"
-rem flag as the config-independent signal; the absolute reference bands only
-rem apply at the scale they were calibrated on (the script prints the caveat).
+rem training arms in one invocation (terminal only). Read the printed flags:
+rem KNEE (growth jumps against the run's own median), CONVENTION (the file's
+rem rank/alpha is not the recipe's; pass --recipe <merged recipe json from
+rem 00b_print_recipe.cmd --json>, default rank 16 / alpha 1) and HOT-START (the
+rem first save already sits 4x above the recipe's reference first save and the
+rem run never speeds up after). The Round 2 absolute bands print only with
+rem --bands: they are local to that dataset and step count.
 rem
 rem Double-clicked with no arguments, the script asks for the folder instead.
 rem

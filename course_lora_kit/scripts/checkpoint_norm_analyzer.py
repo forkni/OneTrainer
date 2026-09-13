@@ -17,6 +17,22 @@ loading a base model, without a GPU, and without rendering a single image:
                flag when that ratio jumps well above the sweep's own median --
                a scale-independent signal (see "What transfers" below).
 
+    recipe     The rank and alpha the file was actually trained with, checked
+               against the recipe (the course style recipe by default, or the
+               JSON passed with --recipe). A mismatch is reported as a
+               CONVENTION warning: alpha raised with the learning rate
+               untouched lands every optimizer step (alpha_file / alpha_recipe)
+               times harder on the base model (Hu et al. 2021, section 4.1).
+
+    hot start  A run whose FIRST save already sits far above the recipe's
+               reference first save and whose growth never accelerates
+               afterwards (the first pair is the steepest, no knee anywhere):
+               the acceleration happened before the first save. Round 3's
+               alpha-16 arm is the measured example -- first save 7.30 against
+               the control's 0.35, growth falling from the first pair, and
+               no knee, because the knee rule only fires on a run that speeds
+               up relative to its own median.
+
 Both ||dW||_F and cosine are computed WITHOUT ever forming the full
 [out_features, in_features] dW matrix. For a real SDXL UNet LoRA that matrix,
 concatenated across all ~722 modules, runs to a couple billion elements (tens
@@ -49,30 +65,30 @@ the later one has drifted onto a different, usually memorized, solution. That
 answers "can I just lower Weight on an overcooked checkpoint?" -- no: a weaker
 dial on a rotated delta still points the wrong way.
 
-Reference values from this course's own measured sweep (rank 16, alpha 1.0 ->
-scale 0.0625, layer_filter_preset "attn-mlp", ~722 modules -- see Appendix D
-and _reviews/FACT_CHECK_Appendix_D_Training_Your_Own_LoRA.md #32-33 and #35):
-    ||dW||_F <= 3.26   every checkpoint that stayed prompt-responsive
-    ||dW||_F >= 6.70   every checkpoint that had collapsed into a memorized,
-                       prompt-independent style
-    cosine ~0.85       adjacent checkpoints in a healthy sweep
-    cosine  0.19       first vs. last checkpoint of an overcooked sweep
+What transfers across recipes, and what does not
+------------------------------------------------
+The SHAPE signals need no calibration: a KNEE in ||dW||_F growth, a drop in
+adjacent-checkpoint cosine, a first save that is already large (hot start), and
+a rank/alpha that is not what the recipe says (convention). Read those first.
 
-(REF_CLEAN_MAX is 3.26, not the round 3.25 an earlier version of this script
-used -- the measured ceiling checkpoint actually reads 3.2503, which the old
-3.25 cutoff mis-banded as "between reference bands" instead of "clean-range".
-See _reviews/FACT_CHECK_Appendix_D_Training_Your_Own_LoRA.md #42.)
+The absolute bands (REF_CLEAN_MAX / REF_COLLAPSED_MIN) were measured on Round 2
+(rank 16, alpha 1.0 -> scale 0.0625, 48 frames) and are printed only with
+--bands. On Round 3 (50 curated frames, same recipe) every arm that rendered
+clean crossed the "collapsed" number by step 1,000 and the control's own pick
+reads 9.62 -- the bands are local to the dataset, the step count and the loss
+weighting they were measured on, and Round 3 contains no collapsed checkpoint
+to re-measure them against. So they are off by default; the reference first
+save (REF_FIRST_SAVE_NORM, Round 3 control at step 99) replaced them as the one
+absolute number the default output leans on, and only for the hot-start check.
 
-These are NOT universal thresholds -- they're specific to that rank/alpha/layer
-config (scale 0.0625). A checkpoint trained at a different scale (e.g. a
+With --bands, a checkpoint trained at a different scale (e.g. a
 kohya-conventional rank 16 / alpha 16, scale 1.0 -- 16x the reference) is
 projected onto the reference scale before banding, on the first-order
 assumption that ||dW||_F scales roughly linearly with a fixed alpha/rank
-multiplier (see classify()). That projection is NOT independently measured at
-other scales -- treat a non-reference-scale band as a rough steer, not a
-verified cutoff. What transfers with no projection needed, at any scale, is the
-SHAPE: a knee in ||dW||_F growth (flagged in the growth column) and a drop in
-adjacent-checkpoint cosine.
+multiplier (see classify()). Note what that projection does to a hot start: it
+divides the 16x edit back out and reads the alpha-16 arm as "clean-range" for
+ten saves. The hot-start check therefore compares the RAW norm -- the edit the
+base model actually receives -- never the projected one.
 
 Needs: numpy, safetensors. No torch, no GPU, no base model.
 
@@ -81,6 +97,14 @@ Usage:
     python checkpoint_norm_analyzer.py path/to/checkpoint/dir/
     python checkpoint_norm_analyzer.py ckpt_dir/ --json norms.json
     python checkpoint_norm_analyzer.py ckpt_dir_A/ ckpt_dir_B/ --json norms.json
+    python checkpoint_norm_analyzer.py ckpt_dir/ --recipe recipe.json
+    python checkpoint_norm_analyzer.py ckpt_dir/ --bands
+
+--recipe takes any JSON with "lora_rank" and "lora_alpha" keys: an OneTrainer
+config, or the merged recipe 00b_print_recipe.cmd writes with --json (overlay
+files such as configs\\style_sdxl.json inherit rank/alpha from the preset and
+do not carry the keys). Without --recipe the course style recipe (rank 16,
+alpha 1.0) is assumed; --no-recipe-check turns the check off.
 
 Each directory argument is its own group: checkpoints are discovered, sorted,
 and have their cosine/growth/knee/endpoint analysis run independently within
@@ -88,9 +112,9 @@ that group, so passing several arms in one invocation does not interleave
 their checkpoints into a single cross-arm trace. Bare file arguments are
 collected into one additional "files" group. With a single directory (or
 single file) argument -- the common case -- output and --json shape are
-exactly what earlier versions of this script produced; multiple groups print
-one table per group and, with --json, nest each group's results under its
-own key.
+what earlier versions of this script produced, plus the recipe_check and
+hot_start entries; multiple groups print one table per group and, with
+--json, nest each group's results under its own key.
 """
 
 from __future__ import annotations
@@ -104,7 +128,7 @@ from pathlib import Path
 import numpy as np
 from safetensors.numpy import load_file
 
-# Reference values from this course's measured run -- see the module docstring.
+# Round 2 reference bands, printed only with --bands -- see the module docstring.
 REF_CLEAN_MAX = 3.26
 REF_COLLAPSED_MIN = 6.70
 REF_ADJACENT_COSINE = 0.85
@@ -114,6 +138,20 @@ REF_ENDPOINT_COSINE = 0.19
 # attn-mlp layer filter. classify() projects a checkpoint's own scale onto this
 # reference scale before banding -- see its docstring for the caveat.
 REF_SCALE = 1.0 / 16.0
+
+# The course style recipe: OneTrainer's shipped "#sdxl 1.0 LoRA" preset (rank 16,
+# alpha 1.0, LR 3e-4) under course_lora_kit\configs\style_sdxl.json. --recipe
+# replaces these with the values read from a config or merged-recipe JSON.
+RECIPE_RANK = 16
+RECIPE_ALPHA = 1.0
+
+# Round 3 control on that recipe (50 curated frames, save_every 100, first save at
+# step 99): ||dW||_F 0.3513. A first save at HOT_START_FACTOR times this or more,
+# with growth that never accelerates afterwards, is flagged as a hot start. The
+# five Round 3 arms on the recipe's alpha read 0.12-0.57 at their first save
+# (0.3x-1.6x); the alpha-16 arm read 7.30 (21x).
+REF_FIRST_SAVE_NORM = 0.35
+HOT_START_FACTOR = 4.0
 
 # Matches OneTrainer's intermediate-checkpoint naming, e.g.
 # "lora_sepiagraph-save-300-1-0.safetensors" -> step 300. Falls back to plain
@@ -163,6 +201,35 @@ def discover_checkpoints(inputs: list[str]) -> list[tuple[str, list[Path]]]:
     if loose_files:
         groups.append(("files", sorted(set(loose_files), key=natural_sort_key)))
     return groups
+
+
+def load_recipe(path: Path) -> tuple[int, float]:
+    """Read (lora_rank, lora_alpha) from an OneTrainer config or merged-recipe JSON.
+
+    Accepts the raw numbers a config carries (16, 1.0) and the rendered strings
+    print_effective_config.py writes ("16", "1.0"). Raises ValueError, with the
+    fix spelled out, when the keys are absent -- an overlay such as
+    configs\\style_sdxl.json only lists the dials it changes.
+    """
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise ValueError(f"{path}: expected a JSON object with lora_rank / lora_alpha keys")
+    missing = [k for k in ("lora_rank", "lora_alpha") if k not in data]
+    if missing:
+        raise ValueError(
+            f"{path}: no {' / '.join(missing)} key. Overlay files only list the dials they change and "
+            "inherit rank/alpha from the preset; pass the merged recipe instead "
+            "(00b_print_recipe.cmd --json recipe.json, i.e. print_effective_config.py --all --json)."
+        )
+
+    def num(v) -> float:
+        return float(str(v).strip().strip("'\""))
+
+    rank = num(data["lora_rank"])
+    alpha = num(data["lora_alpha"])
+    if rank <= 0 or rank != int(rank):
+        raise ValueError(f"{path}: lora_rank must be a positive integer, got {data['lora_rank']!r}")
+    return int(rank), alpha
 
 
 # A module's low-rank factors: down [rank, in_features], up [out_features, rank],
@@ -291,7 +358,8 @@ def dominant_rank_alpha_scale(modules: dict[str, LoraModule]) -> tuple[int, floa
 
 
 def classify(norm: float, scale: float) -> str:
-    """Band a checkpoint's ||dW||_F -- scale-aware.
+    """Band a checkpoint's ||dW||_F against the Round 2 reference -- scale-aware,
+    and only used with --bands.
 
     The reference bands (REF_CLEAN_MAX/REF_COLLAPSED_MIN) were measured at
     REF_SCALE (rank 16, alpha 1.0 -> 0.0625). This projects the checkpoint's own
@@ -304,8 +372,9 @@ def classify(norm: float, scale: float) -> str:
     16/alpha 16 run (scale 1.0, 16x reference) actually collapses at a
     projected ~3.26-6.70, only that IF the assumption holds, that's where the
     reference bands land after projection. Treat the returned band as a rough
-    steer at non-reference scale; the growth-knee and adjacent-cosine signals
-    need no such projection and are the ones worth trusting across configs.
+    steer at non-reference scale; the growth-knee, adjacent-cosine, hot-start
+    and convention signals need no such projection and are the ones worth
+    trusting across configs.
     """
     if scale <= 0:
         projected = norm
@@ -318,11 +387,73 @@ def classify(norm: float, scale: float) -> str:
     return "between reference bands"
 
 
-def analyze_group(checkpoints: list[Path]) -> tuple[list[dict], float | None]:
+def recipe_check(rows: list[dict], recipe_rank: int, recipe_alpha: float) -> dict:
+    """Compare every checkpoint's own rank/alpha with the recipe's.
+
+    A checkpoint that disagrees is a convention mix, not a training outcome:
+    the file was trained with a different alpha/rank multiplier than the recipe
+    says, so with the learning rate left as the recipe set it, every optimizer
+    step landed (scale_file / scale_recipe) times harder on the base model
+    (Hu et al. 2021, section 4.1: with Adam, tuning alpha is roughly the same as
+    tuning the learning rate). The Round 3 alpha-16 arm is the measured case:
+    the same 3e-4, sixteen times the step.
+    """
+    mismatched = [
+        r for r in rows if r["rank"] != recipe_rank or abs(r["alpha"] - recipe_alpha) > 1e-6
+    ]
+    result = {
+        "recipe_rank": recipe_rank,
+        "recipe_alpha": recipe_alpha,
+        "match": not mismatched,
+        "mismatched_files": [r["file"] for r in mismatched],
+    }
+    if mismatched:
+        r0 = mismatched[0]
+        recipe_scale = recipe_alpha / recipe_rank if recipe_rank else 0.0
+        result["file_rank"] = r0["rank"]
+        result["file_alpha"] = r0["alpha"]
+        result["effective_step_factor"] = round(r0["scale"] / recipe_scale, 3) if recipe_scale > 0 else None
+    return result
+
+
+def hot_start_check(rows: list[dict], ref_first_save: float) -> dict:
+    """Flag a run whose first save is already far above the recipe's reference
+    first save and whose growth never accelerates afterwards.
+
+    Three conditions, all on the RAW norm (the edit the base model receives,
+    not the scale-projected one -- projection is exactly what hides a hot
+    start, see the module docstring):
+      1. first save >= HOT_START_FACTOR x ref_first_save;
+      2. the first growth pair is the run's steepest (growth ratios fall from
+         the first pair, up to save-to-save noise);
+      3. no KNEE anywhere -- the acceleration the knee rule looks for happened
+         before the first save.
+    Needs at least three saves for 2 and 3 to mean anything; with fewer the
+    ratio is still reported, the flag stays off.
+    """
+    if not rows:
+        return {"flag": False}
+    first = rows[0]["norm_frobenius"]
+    ratio = first / ref_first_save if ref_first_save > 0 else None
+    growth = [r["norm_growth_ratio"] for r in rows[1:] if r.get("norm_growth_ratio") is not None]
+    first_pair_is_steepest = len(growth) >= 2 and max(growth) <= growth[0] + 1e-9
+    no_knee = not any(r.get("knee") for r in rows)
+    flag = bool(ratio is not None and ratio >= HOT_START_FACTOR and first_pair_is_steepest and no_knee)
+    return {
+        "flag": flag,
+        "first_save_norm": round(first, 4),
+        "reference_first_save_norm": ref_first_save,
+        "first_save_ratio": round(ratio, 2) if ratio is not None else None,
+        "first_pair_is_steepest": first_pair_is_steepest,
+        "no_knee": no_knee,
+    }
+
+
+def analyze_group(checkpoints: list[Path], bands: bool = False) -> tuple[list[dict], float | None]:
     """Run the load / norm / cosine / growth / knee pipeline over one sorted
     checkpoint list. Independent per group -- no state carries across groups,
     which is the fix for the cross-arm interleaving discover_checkpoints()
-    used to allow.
+    used to allow. The Round 2 band is attached only when `bands` is set.
     """
     rows = []
     loaded: list[dict[str, LoraModule]] = []
@@ -335,7 +466,6 @@ def analyze_group(checkpoints: list[Path]) -> tuple[list[dict], float | None]:
             continue
         norm = checkpoint_norm(modules)
         rank, alpha, scale, mixed = dominant_rank_alpha_scale(modules)
-        band = "n/a (DoRA)" if has_dora else classify(norm, scale)
         print(
             f"  ||dW||_F = {norm:.4f} ({len(modules)} modules, rank {rank}, alpha {alpha:.4g}, scale {scale:.4f})",
             file=sys.stderr,
@@ -345,28 +475,28 @@ def analyze_group(checkpoints: list[Path]) -> tuple[list[dict], float | None]:
             print(
                 "  NOTE: also carries '.dora_scale' keys (DoRA magnitude decomposition). "
                 "||dW||_F below covers only the low-rank direction term, not DoRA's per-channel "
-                "magnitude scaling -- treat it as directional only; the clean/collapsed bands do not apply.",
+                "magnitude scaling -- treat it as directional only; the Round 2 bands do not apply.",
                 file=sys.stderr,
             )
         if mixed:
             print(
                 "  NOTE: modules disagree on rank/alpha/scale -- reporting the first module found; "
-                "the scale-projected band above is unreliable for this checkpoint.",
+                "the recipe check and any scale-projected band are unreliable for this checkpoint.",
                 file=sys.stderr,
             )
-        rows.append(
-            {
-                "file": path.name,
-                "norm_frobenius": round(norm, 4),
-                "modules": len(modules),
-                "rank": rank,
-                "alpha": round(alpha, 4),
-                "scale": round(scale, 6),
-                "has_dora": has_dora,
-                "mixed_config": mixed,
-                "band": band,
-            }
-        )
+        row = {
+            "file": path.name,
+            "norm_frobenius": round(norm, 4),
+            "modules": len(modules),
+            "rank": rank,
+            "alpha": round(alpha, 4),
+            "scale": round(scale, 6),
+            "has_dora": has_dora,
+            "mixed_config": mixed,
+        }
+        if bands:
+            row["band"] = "n/a (DoRA)" if has_dora else classify(norm, scale)
+        rows.append(row)
         loaded.append(modules)
 
     # Adjacent-pair cosine and growth ratio, computed only across successfully-loaded
@@ -391,26 +521,83 @@ def analyze_group(checkpoints: list[Path]) -> tuple[list[dict], float | None]:
     return rows, endpoint_cosine
 
 
-def print_group_table(name: str, rows: list[dict], endpoint_cosine: float | None, show_name: bool) -> None:
+def print_group_table(
+    name: str,
+    rows: list[dict],
+    endpoint_cosine: float | None,
+    show_name: bool,
+    recipe: dict | None,
+    hot_start: dict,
+    bands: bool,
+) -> None:
     print("=" * 100)
     if show_name:
         print(name)
         print("-" * 100)
-    print(f"{'file':<38} {'||dW||_F':>9} {'rank/a/scale':>15} {'cos_prev':>9} {'growth':>8}  band")
+    band_hdr = "  band" if bands else ""
+    print(f"{'file':<38} {'||dW||_F':>9} {'rank/a/scale':>15} {'cos_prev':>9} {'growth':>8}  flags{band_hdr}")
     print("-" * 100)
-    for row in rows:
+    for i, row in enumerate(rows):
         cos = row.get("cosine_vs_prev")
         cos_str = f"{cos:.3f}" if cos is not None else "  --"
         growth = row.get("norm_growth_ratio")
         growth_str = f"{growth:.2f}x" if growth is not None else "  --"
-        knee_mark = " KNEE" if row.get("knee") else ""
+        flags = []
+        if row.get("knee"):
+            flags.append("KNEE")
+        if i == 0 and hot_start.get("flag"):
+            flags.append("HOT-START")
+        if recipe and row["file"] in recipe["mismatched_files"]:
+            flags.append("CONVENTION")
+        flag_str = " ".join(flags) if flags else "--"
+        band_str = f"  {row['band']}" if bands else ""
         ras = f"{row['rank']}/{row['alpha']:g}/{row['scale']:.3f}"
         print(
             f"{row['file']:<38} {row['norm_frobenius']:>9.4f} {ras:>15} {cos_str:>9} {growth_str:>8}  "
-            f"{row['band']}{knee_mark}"
+            f"{flag_str}{band_str}"
         )
     print("-" * 100)
     print(f"Endpoint cosine (first vs. last): {endpoint_cosine:.3f}" if endpoint_cosine is not None else "Endpoint cosine: n/a (need >=2 checkpoints)")
+
+    if recipe:
+        rr, ra = recipe["recipe_rank"], recipe["recipe_alpha"]
+        if recipe["match"]:
+            print(f"Recipe check: rank {rr} / alpha {ra:g} (scale {ra / rr:.4f}) -- every save matches.")
+        else:
+            fr, fa = recipe["file_rank"], recipe["file_alpha"]
+            factor = recipe.get("effective_step_factor")
+            n_bad = len(recipe["mismatched_files"])
+            which = "every save" if n_bad == len(rows) else f"{n_bad} of {len(rows)} saves"
+            print(
+                f"Recipe check: CONVENTION MISMATCH -- {which} trained at rank {fr} / alpha {fa:g} "
+                f"(scale {fa / fr:.4f}); the recipe says rank {rr} / alpha {ra:g} (scale {ra / rr:.4f})."
+            )
+            if factor:
+                print(
+                    f"  With the learning rate left as the recipe set it, every optimizer step landed "
+                    f"{factor:g}x harder on the base model (Hu et al. 2021, sec. 4.1: alpha and LR travel"
+                )
+                print("  together). Check lora_alpha / lora_rank in the run's config before reading anything else.")
+
+    ratio = hot_start.get("first_save_ratio")
+    if ratio is not None:
+        line = (
+            f"Hot start: first save {hot_start['first_save_norm']:.4f} = {ratio:g}x the recipe's reference "
+            f"first save ({hot_start['reference_first_save_norm']:g})"
+        )
+        if hot_start["flag"]:
+            print(line + "; first pair is the run's steepest, no KNEE anywhere -> HOT-START.")
+            print("  The acceleration the knee looks for happened before the first save; the run began")
+            print("  where a healthy run ends its warm-up. A convention mismatch above is the usual cause.")
+        else:
+            why = []
+            if ratio < HOT_START_FACTOR:
+                why.append(f"below the {HOT_START_FACTOR:g}x line")
+            if not hot_start["first_pair_is_steepest"]:
+                why.append("growth still rising after the first pair")
+            if not hot_start["no_knee"]:
+                why.append("a KNEE fired later")
+            print(line + " -- no (" + ", ".join(why) + ").")
 
 
 def main() -> int:
@@ -424,7 +611,39 @@ def main() -> int:
         "Each directory argument is analyzed as its own independent group.",
     )
     parser.add_argument("--json", metavar="FILE", help="Write the full results table to this JSON file.")
+    parser.add_argument(
+        "--recipe",
+        metavar="JSON",
+        help="OneTrainer config or merged recipe (00b_print_recipe.cmd --json) whose lora_rank / lora_alpha "
+        f"every checkpoint is checked against. Default: the course style recipe, rank {RECIPE_RANK} / "
+        f"alpha {RECIPE_ALPHA:g}.",
+    )
+    parser.add_argument("--no-recipe-check", action="store_true", help="Skip the rank/alpha convention check.")
+    parser.add_argument(
+        "--ref-first-save",
+        type=float,
+        default=REF_FIRST_SAVE_NORM,
+        metavar="NORM",
+        help=f"||dW||_F of the recipe's reference run at its first save (default {REF_FIRST_SAVE_NORM}: "
+        "Round 3 control, step 99). The hot-start check compares the first save against "
+        f"{HOT_START_FACTOR:g}x this.",
+    )
+    parser.add_argument(
+        "--bands",
+        action="store_true",
+        help="Also print the Round 2 reference bands (clean <= 3.26 / collapsed >= 6.70, scale-projected). "
+        "Off by default: they are local to the Round 2 dataset and step count (see the docstring).",
+    )
     args = parser.parse_args()
+
+    recipe_rank, recipe_alpha, recipe_source = RECIPE_RANK, RECIPE_ALPHA, "course style recipe (built in)"
+    if args.recipe:
+        try:
+            recipe_rank, recipe_alpha = load_recipe(Path(args.recipe))
+        except (OSError, ValueError, json.JSONDecodeError) as e:
+            print(f"ERROR reading --recipe: {e}", file=sys.stderr)
+            return 2
+        recipe_source = str(args.recipe)
 
     groups = discover_checkpoints(args.paths)
     if not groups or not any(checkpoints for _, checkpoints in groups):
@@ -437,9 +656,19 @@ def main() -> int:
         if not checkpoints:
             print(f"WARNING: no .safetensors files in {name}, skipping.", file=sys.stderr)
             continue
-        rows, endpoint_cosine = analyze_group(checkpoints)
-        print_group_table(name, rows, endpoint_cosine, show_name=multi)
-        group_results[name] = {"checkpoints": rows, "endpoint_cosine": endpoint_cosine}
+        rows, endpoint_cosine = analyze_group(checkpoints, bands=args.bands)
+        if not rows:
+            print(f"WARNING: nothing loadable in {name}, skipping.", file=sys.stderr)
+            continue
+        recipe = None if args.no_recipe_check else recipe_check(rows, recipe_rank, recipe_alpha)
+        hot_start = hot_start_check(rows, args.ref_first_save)
+        print_group_table(name, rows, endpoint_cosine, show_name=multi, recipe=recipe, hot_start=hot_start, bands=args.bands)
+        group_results[name] = {
+            "checkpoints": rows,
+            "endpoint_cosine": endpoint_cosine,
+            "recipe_check": recipe,
+            "hot_start": hot_start,
+        }
 
     print()
     print("Column key:")
@@ -447,30 +676,45 @@ def main() -> int:
     print("  rank/a/scale  this file's own rank / alpha / (alpha divided by rank)")
     print("  cos_prev      cosine vs the PREVIOUS save's delta: how much the edit ROTATED, not grew")
     print("  growth        this save's ||dW||_F divided by the previous save's")
-    print("  KNEE          growth >= 1.5x this sweep's median growth -- the one config-free signal")
-    print("  band          this norm projected onto the reference scale below, then bucketed")
+    print("  KNEE          growth >= 1.5x this sweep's median growth -- the run speeding up against itself")
+    print("  HOT-START     first save >= {0:g}x the recipe's reference first save, and the run never".format(HOT_START_FACTOR))
+    print("                speeds up afterwards: the acceleration happened before the first save")
+    print("  CONVENTION    this file's rank/alpha is not the recipe's -- a mixed convention, not a result")
+    if args.bands:
+        print("  band          this norm projected onto the Round 2 reference scale, then bucketed")
     print()
-    print(f"Reference values (rank 16, alpha 1.0 -> scale {REF_SCALE:.4f}, attn-mlp layer filter):")
-    print(f"  clean <= {REF_CLEAN_MAX}, collapsed >= {REF_COLLAPSED_MIN}, adjacent cosine ~{REF_ADJACENT_COSINE},")
-    print(f"  overcooked-sweep endpoint cosine {REF_ENDPOINT_COSINE}.")
-    print("Bands above are each checkpoint's own norm PROJECTED onto this reference scale via")
-    print("its own rank/alpha (see classify() docstring) -- a first-order approximation, not")
-    print("separately measured at other scales. What transfers with no projection needed: a")
-    print("KNEE in the growth column, and a drop in adjacent-checkpoint cosine.")
-    print("The bands are recipe-local, not universal. Change the dataset, the step count or the")
-    print("loss weighting and they move with it: Round 2's healthy pick (arm S0b) reads 8.1 --")
-    print("past the \"collapsed\" number above -- and renders clean. Read KNEE and cos_prev first,")
-    print("band second.")
+    print(f"Recipe: rank {recipe_rank} / alpha {recipe_alpha:g} (scale {recipe_alpha / recipe_rank:.4f}) from {recipe_source}.")
+    print(f"Reference first save: {args.ref_first_save:g} (Round 3 control, rank 16 / alpha 1.0, step 99).")
+    print("Read the flags and cos_prev first. None of them needs a calibrated threshold beyond the")
+    print("reference first save, and that one is only used for HOT-START.")
+    if args.bands:
+        print()
+        print(f"Round 2 reference bands (rank 16, alpha 1.0 -> scale {REF_SCALE:.4f}, attn-mlp layer filter):")
+        print(f"  clean <= {REF_CLEAN_MAX}, collapsed >= {REF_COLLAPSED_MIN}, adjacent cosine ~{REF_ADJACENT_COSINE},")
+        print(f"  overcooked-sweep endpoint cosine {REF_ENDPOINT_COSINE}.")
+        print("Bands are each checkpoint's own norm PROJECTED onto this reference scale via its own")
+        print("rank/alpha (see classify() docstring) -- a first-order approximation, not separately")
+        print("measured at other scales, and it divides a hot start back out (alpha 16 reads \"clean\").")
+        print("They are recipe-local, not universal: on Round 3 every arm that rendered clean crossed")
+        print("6.70 by step 1,000 and the control's own pick reads 9.62. Rough steer only.")
     print("=" * 100)
 
     if args.json:
         reference = {
-            "clean_max": REF_CLEAN_MAX,
-            "collapsed_min": REF_COLLAPSED_MIN,
-            "adjacent_cosine": REF_ADJACENT_COSINE,
-            "endpoint_cosine": REF_ENDPOINT_COSINE,
-            "scale": REF_SCALE,
+            "recipe": {"rank": recipe_rank, "alpha": recipe_alpha, "source": recipe_source},
+            "first_save_norm": args.ref_first_save,
+            "hot_start_factor": HOT_START_FACTOR,
         }
+        if args.bands:
+            reference.update(
+                {
+                    "clean_max": REF_CLEAN_MAX,
+                    "collapsed_min": REF_COLLAPSED_MIN,
+                    "adjacent_cosine": REF_ADJACENT_COSINE,
+                    "endpoint_cosine": REF_ENDPOINT_COSINE,
+                    "scale": REF_SCALE,
+                }
+            )
         if multi:
             out = {"groups": group_results, "reference": reference}
         else:
