@@ -38,3 +38,13 @@ train.bat
 debug_report.log
 config_diff.txt
 CLAUDE.md
+install_log.txt
+/smoketest_refs/
+# keep the course skill tracked; everything else under .claude/ stays local
+.claude/*
+!.claude/skills/
+.claude/skills/*
+!.claude/skills/lora-training-pipeline/
+logs/
+.cgw.conf
+.cgw.conf.bak

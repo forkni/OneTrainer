@@ -1,0 +1,1722 @@
+#!/usr/bin/env bash
+# _common.sh - Shared utility functions for claude-git-workflow scripts
+# Usage: source "$(dirname "${BASH_SOURCE[0]}")/_common.sh"
+#
+# Sourcing this file also sources _config.sh, which:
+#   - Auto-detects PROJECT_ROOT (git discovery from cwd; SCRIPT_DIR walk fallback)
+#   - Loads .cgw.conf if present
+#   - Applies CGW_* variable defaults
+#
+# Available Functions:
+#   err()                   - Print error message to STDERR
+#   get_timestamp()         - Sets $timestamp variable (yyyyMMdd_HHmmss)
+#   init_logging()          - Sets $logfile, $reportfile; creates logs/ dir
+#   get_lint_exclusions()   - Sets RUFF_CHECK_EXCLUDE / RUFF_FORMAT_EXCLUDE from CGW config
+#   get_python_path()       - Sets PYTHON_BIN and PYTHON_EXT (cross-platform venv detection)
+#   log_message()           - Logs message to console and file
+#   log_section_start/end() - Section headers with timing (safe for nested calls)
+#   run_tool_with_logging() - Run a tool and capture output to log
+#   run_git_with_logging()  - Run git command with section logging
+#   validate_branch_pair()  - Validate src/tgt branch names and local existence; exit 1 on error
+#   cgw_run_pre_op_validation() - Shared pre-op validate_branches.sh re-invoke + log section; returns 1 on failure
+#   ensure_no_stale_index_lock() - Detect/remove stale .git/index.lock; return 1 if refused/active
+#   cgw_create_backup_tag() - Create pre-<op>-<ts>-<pid> tag; sets $CGW_BACKUP_TAG
+#   cgw_backup_tag_glob()   - Echo glob pattern(s) for backup tag filtering
+#   cgw_list_backup_tags()  - Echo existing backup tags; optional op filter
+#   cgw_is_local_file()     - Return 0 if path matches any local-only entry (reads CGW_LOCAL_FILES)
+#   cgw_filter_local_files() - Filter stdin/args paths; echoes matches; returns 0 if any match
+#   cgw_classify_conflicts() - Parse git status into 8 conflict-category arrays; sets CGW_CONFLICT_TOTAL
+#   cgw_resolve_safe_conflicts() - Auto-resolve DU/DD, emit halt messages; sets CGW_CONFLICT_STATE
+#   cgw_print_conflict_summary() - Print categorised file list from last cgw_classify_conflicts call
+#   cgw_confirm()               - Unified confirmation prompt; handles NI mode, literal tokens, defaults
+#   cgw_default_branch()        - Echo the repo's default branch (origin/HEAD, falls back to CGW_TARGET_BRANCH)
+#   cgw_require_gh()            - Verify gh CLI is installed and authenticated; prints [ERROR] and returns 1 on failure
+
+# SCRIPT_DIR must be set by the caller before sourcing _common.sh:
+#   SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+#   source "${SCRIPT_DIR}/_common.sh"
+if [[ -z "${SCRIPT_DIR:-}" ]]; then
+  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+fi
+
+# Source config (sets PROJECT_ROOT + all CGW_* variables)
+# shellcheck source=scripts/git/_config.sh
+source "${SCRIPT_DIR}/_config.sh"
+
+# ============================================================================
+# UTILITY FUNCTIONS
+# ============================================================================
+
+# Error output helper -- always goes to STDERR per style guide
+err() {
+  echo "[ERROR] $*" >&2
+}
+
+# Error helper that also appends to the active logfile (set by init_logging).
+# Falls back to stderr-only if logfile is not yet initialised.
+err_tee() {
+  if [[ -n "${logfile:-}" ]]; then
+    echo "$*" | tee -a "${logfile}" >&2
+  else
+    echo "$*" >&2
+  fi
+}
+
+# Section timer storage -- associative array avoids global clobbering when
+# sections are nested (e.g. run_tool_with_logging called inside another section)
+declare -A _SECTION_START_TIMES=() 2>/dev/null || true
+
+get_timestamp() {
+  timestamp=$(date +%Y%m%d_%H%M%S)
+}
+
+init_logging() {
+  local script_name="$1"
+  # Use PROJECT_ROOT for an absolute path so logs land in the right place
+  # even when the script is invoked from a subdirectory. PROJECT_ROOT is set
+  # by _config.sh before any script calls init_logging.
+  local log_dir="${PROJECT_ROOT:+${PROJECT_ROOT}/}logs"
+
+  if [[ ! -d "${log_dir}" ]]; then
+    mkdir -p "${log_dir}"
+  fi
+
+  get_timestamp
+
+  # shellcheck disable=SC2034
+  logfile="${log_dir}/${script_name}_${timestamp}.log"
+  # shellcheck disable=SC2034
+  reportfile="${log_dir}/${script_name}_analysis_${timestamp}.log"
+}
+
+get_lint_exclusions() {
+  # Build ruff exclusion flags from CGW config variables.
+  # Used by check_lint.sh, fix_lint.sh, commit_enhanced.sh.
+  # shellcheck disable=SC2034
+  RUFF_CHECK_EXCLUDE="${CGW_LINT_EXCLUDES}"
+  # shellcheck disable=SC2034
+  RUFF_FORMAT_EXCLUDE="${CGW_FORMAT_EXCLUDES}"
+}
+
+get_python_path() {
+  # CGW_NO_VENV=1 or SKIP_VENV=1: skip venv detection, use system ruff directly
+  if [[ "${CGW_NO_VENV:-0}" == "1" ]] || [[ "${SKIP_VENV:-0}" == "1" ]]; then
+    # shellcheck disable=SC2034
+    PYTHON_BIN=""
+    # shellcheck disable=SC2034
+    PYTHON_EXT=""
+    return 0
+  fi
+
+  if [[ -d ".venv/Scripts" ]]; then
+    # Windows (Git Bash, MSYS)
+    # shellcheck disable=SC2034
+    PYTHON_BIN=".venv/Scripts"
+    # shellcheck disable=SC2034
+    PYTHON_EXT=".exe"
+  elif [[ -d ".venv/bin" ]]; then
+    # Linux, macOS
+    # shellcheck disable=SC2034
+    PYTHON_BIN=".venv/bin"
+    # shellcheck disable=SC2034
+    PYTHON_EXT=""
+  else
+    # Fallback to system ruff
+    if command -v ruff &>/dev/null; then
+      # shellcheck disable=SC2034
+      PYTHON_BIN=""
+      # shellcheck disable=SC2034
+      PYTHON_EXT=""
+      return 0
+    fi
+    echo "[ERROR] Virtual environment not found (.venv/Scripts or .venv/bin) and ruff not in PATH" >&2
+    return 1
+  fi
+  return 0
+}
+
+log_message() {
+  local msg="$1"
+  local log_path="$2"
+
+  echo "$msg"
+  echo "$msg" >>"$log_path"
+}
+
+# log_section_start — print a section header with timestamp and record start time.
+# Globals:   _SECTION_START_TIMES (write — records start epoch keyed by section name)
+# Arguments: $1 section_name — display label for the section
+#            $2 log_path     — file path to append output to
+# Returns:   0 always
+log_section_start() {
+  local section_name="$1"
+  local log_path="$2"
+  local time_str
+  time_str=$(date +%H:%M:%S)
+  _SECTION_START_TIMES["${section_name}"]=$(date +%s)
+
+  {
+    echo ""
+    echo "========================================"
+    echo "[${section_name}] Started: ${time_str}"
+    echo "========================================"
+  } | tee -a "${log_path}"
+}
+
+# log_section_end — print a section footer with elapsed time and PASSED/FAILED status.
+# Globals:   _SECTION_START_TIMES (read — looks up start epoch by section name)
+#            CGW_SECTION_FAIL_LABEL (read, optional — overrides the non-zero
+#              status label, e.g. "WARN" for a non-blocking section; defaults
+#              to "FAILED" when unset. PASSED is never overridden.)
+# Arguments: $1 section_name — must match a prior log_section_start call
+#            $2 log_path     — file path to append output to
+#            $3 exit_code    — 0 = PASSED, non-zero = FAILED (label may be overridden)
+#            $4 error_count  — optional; reserved for future display (default 0)
+# Returns:   0 always
+log_section_end() {
+  local section_name="$1"
+  local log_path="$2"
+  local exit_code="$3"
+  # shellcheck disable=SC2034  # Reserved parameter for future error-count display; not yet used in output
+  local error_count="${4:-0}"
+
+  local time_str duration status
+  time_str=$(date +%H:%M:%S)
+  local end_time start_time
+  end_time=$(date +%s)
+  start_time="${_SECTION_START_TIMES[${section_name}]:-${end_time}}"
+  duration=$((end_time - start_time))
+
+  if [[ ${exit_code} -eq 0 ]]; then
+    status="PASSED"
+  else
+    # Optional caller override (see CGW_SECTION_FAIL_LABEL above), e.g. a
+    # non-blocking section prints "WARN" instead of "FAILED".
+    status="${CGW_SECTION_FAIL_LABEL:-FAILED}"
+  fi
+
+  echo "[${section_name}] Ended: ${time_str} (${duration}s) - ${status}" | tee -a "${log_path}"
+}
+
+# run_tool_with_logging — run a command, capture output, log it under a named section.
+# Globals:   TOOL_OUTPUT (write — captured stdout+stderr of the command)
+#            TOOL_ERROR_COUNT (write — count of lines matching file:line:col: pattern)
+# Arguments: $1 tool_name — section label shown in log headers
+#            $2 log_path  — file path to append output to
+#            $@ command   — command and its arguments to execute
+# Returns:   exit code of the command
+run_tool_with_logging() {
+  local tool_name="$1"
+  local log_path="$2"
+  shift 2
+
+  log_section_start "$tool_name" "$log_path"
+
+  TOOL_OUTPUT=$("$@" 2>&1)
+  local exit_code=$?
+
+  # Diagnostic-line pattern: the default matches ruff/flake8-style
+  # "file:line:col: ". Tools that emit a different shape (markdownlint-cli2:
+  # "file:line[:col] MDxxx/rule ...") never match it, so their real errors
+  # counted as 0 while the section still FAILED -- a self-contradicting
+  # summary ("Lint FAILED 0 errors ... STATUS: FAILED"). Callers override via
+  # a dynamically scoped CGW_TOOL_ERROR_REGEX local (same pattern as
+  # CGW_SECTION_FAIL_LABEL).
+  TOOL_ERROR_COUNT=$(echo "$TOOL_OUTPUT" | grep -cE "${CGW_TOOL_ERROR_REGEX:-^[^:]+:[0-9]+:[0-9]+:}" || true)
+
+  if [[ -n "$TOOL_OUTPUT" ]]; then
+    echo "$TOOL_OUTPUT" | tee -a "$log_path"
+  fi
+
+  log_section_end "$tool_name" "$log_path" "$exit_code" "$TOOL_ERROR_COUNT"
+
+  return $exit_code
+}
+
+# log_summary_table — print a formatted summary table for all lint/format sections.
+# Globals:   none
+# Arguments: $1 log_path — file path to append output to
+#            $@ results  — variadic; each element is "name:status:errors:duration"
+# Returns:   0 always
+log_summary_table() {
+  local log_path="$1"
+  shift
+
+  {
+    echo ""
+    echo "========================================"
+    echo "[ERROR SUMMARY]"
+    echo "========================================"
+    printf "%-14s %-8s %-8s %s\n" "Tool" "Status" "Errors" "Duration"
+    printf "%-14s %-8s %-8s %s\n" "----" "------" "------" "--------"
+
+    local total_errors=0
+    for result in "$@"; do
+      IFS=':' read -r name status errors duration <<<"$result"
+      printf "%-14s %-8s %-8s %s\n" "$name" "$status" "$errors" "${duration}s"
+      ((total_errors += errors))
+    done
+
+    echo ""
+    echo "Total: $total_errors errors"
+  } | tee -a "$log_path"
+}
+
+# run_git_with_logging — run a git subcommand, capture output, and log it under a named section.
+# Globals:   GIT_OUTPUT (write — captured stdout+stderr of git)
+#            GIT_EXIT_CODE (write — exit code of git)
+# Arguments: $1 section_name — section label shown in log headers
+#            $2 log_path     — file path to append output to
+#            $@ git args     — passed directly to git
+# Returns:   exit code of git
+run_git_with_logging() {
+  local section_name="$1"
+  local log_path="$2"
+  shift 2
+
+  log_section_start "$section_name" "$log_path"
+
+  echo "Command: git $*" | tee -a "$log_path"
+
+  GIT_OUTPUT=$(git "$@" 2>&1)
+  GIT_EXIT_CODE=$?
+
+  if [[ -n "$GIT_OUTPUT" ]]; then
+    echo "$GIT_OUTPUT" | tee -a "$log_path"
+  fi
+
+  log_section_end "$section_name" "$log_path" "$GIT_EXIT_CODE"
+
+  return $GIT_EXIT_CODE
+}
+
+validate_branch_pair() {
+  local src="${1}" tgt="${2}"
+  if [[ -z "${src}" ]]; then
+    err "No source branch configured. Pass --source <branch>, or set CGW_SOURCE_BRANCH in .cgw.conf."
+    exit 1
+  fi
+  if ! git check-ref-format --branch "${src}" 2>/dev/null; then
+    err "Invalid source branch name: '${src}'"
+    exit 1
+  fi
+  if ! git check-ref-format --branch "${tgt}" 2>/dev/null; then
+    err "Invalid target branch name: '${tgt}'"
+    exit 1
+  fi
+  if [[ "${src}" == "${tgt}" ]]; then
+    err "Source and target branch are the same: '${src}'"
+    exit 1
+  fi
+  if ! git rev-parse --verify --quiet "refs/heads/${src}" >/dev/null 2>&1; then
+    err "Source branch '${src}' does not exist locally"
+    exit 1
+  fi
+  if ! git rev-parse --verify --quiet "refs/heads/${tgt}" >/dev/null 2>&1; then
+    err "Target branch '${tgt}' does not exist locally"
+    exit 1
+  fi
+}
+
+# cgw_run_pre_op_validation <op_label> <src> <tgt> <logfile>
+# Shared pre-operation validation step used by the merge/cherry-pick/docs-merge family:
+# re-invokes validate_branches.sh with the given branch pair via env override (so callers
+# don't need to touch CGW_SOURCE_BRANCH/CGW_TARGET_BRANCH globally), wrapped in a named
+# log section.
+#
+# <op_label> drives both the section name ("PRE-<OP_LABEL> VALIDATION") and the noun used
+# in pass/fail messages ("aborting <op_label>", "Pre-<op_label> validation passed") --
+# e.g. "merge", "cherry-pick", "documentation merge".
+#
+# Returns 0 on pass, 1 on failure. Does NOT exit -- callers own `|| exit 1`, which keeps
+# this testable in isolation (bats can assert the return code without a subshell).
+cgw_run_pre_op_validation() {
+  local op_label="${1}" src="${2}" tgt="${3}" log_path="${4}"
+  local section_name
+  section_name="PRE-$(printf '%s' "${op_label}" | tr '[:lower:]' '[:upper:]') VALIDATION"
+
+  log_section_start "${section_name}" "${log_path}"
+
+  if [[ -f "${SCRIPT_DIR}/validate_branches.sh" ]]; then
+    if ! CGW_SOURCE_BRANCH="${src}" CGW_TARGET_BRANCH="${tgt}" \
+      bash "${SCRIPT_DIR}/validate_branches.sh" >>"${log_path}" 2>&1; then
+      err_tee "[FAIL] Validation failed - aborting ${op_label}"
+      log_section_end "${section_name}" "${log_path}" "1"
+      echo "Please fix validation errors before retrying"
+      return 1
+    fi
+  fi
+
+  echo "[OK] Pre-${op_label} validation passed" | tee -a "${log_path}"
+  log_section_end "${section_name}" "${log_path}" "0"
+  return 0
+}
+
+# cgw_rev_count <base> <tip>
+# Outputs the number of commits reachable from <tip> but not from <base>.
+# Accepts any git ref (branch names, remote-tracking refs, SHAs).
+# Exits non-zero on git failure; callers own their fallback (e.g. || echo "0").
+cgw_rev_count() {
+  git rev-list --count "${1}..${2}" 2>/dev/null
+}
+
+# cgw_remote_reachable <remote>
+# Exits 0 when <remote> is reachable, non-zero otherwise. Silent.
+# Uses git ls-remote with no ref pattern — exits non-zero on any connection failure.
+cgw_remote_reachable() {
+  git ls-remote "${1}" >/dev/null 2>&1
+}
+
+# cgw_remote_branch_exists <remote> <branch>
+# Exits 0 when <branch> exists on <remote>, non-zero otherwise. Silent.
+# Accepts a plain branch name; builds refs/heads/ internally.
+#
+# Contract: the exit code is git ls-remote's raw exit code, unmodified --
+# 0 = exists, 2 = genuinely absent, anything else (128 = unreachable/auth
+# failure, etc.) = the probe itself failed and must NOT be read as absent.
+# `if cgw_remote_branch_exists ...` callers that only branch on zero/non-zero
+# are fine either way; a caller that needs to tell "absent" apart from "probe
+# failed" (e.g. before weakening a force-push guard) must capture "$?" itself
+# rather than treating this as a plain boolean.
+cgw_remote_branch_exists() {
+  git ls-remote --exit-code "${1}" "refs/heads/${2}" >/dev/null 2>&1
+}
+
+# cgw_remote_owner_repo <remote>
+# Echoes "<owner>/<repo>" parsed from <remote>'s configured URL, for github.com
+# SSH/HTTPS remotes only. Returns 1 and prints nothing if <remote> is unset or
+# its URL isn't a recognizable github.com URL.
+#
+# Reads remote.<remote>.pushurl first, falling back to remote.<remote>.url
+# when pushurl is unset -- a remote with a separate fetch/push URL (e.g.
+# fetch=upstream, push=fork) is actually targeted, on push, at pushurl, so
+# that is the identity that must drive gh's --repo. Reads the RAW config
+# value (`git config --get`), not `git remote get-url` -- the latter expands
+# any `url.<base>.insteadOf` rewrite and would report the rewritten transport
+# (e.g. a corporate mirror or, in tests, a local bare repo) instead of the
+# remote's real GitHub identity. Used by create_pr.sh to pass gh CLI an
+# explicit `--repo`: without it, `gh pr create` resolves the target repo
+# itself and -- when the remote is a fork -- defaults to the fork's
+# parent/upstream repo, silently opening (or failing to open) the PR against
+# the wrong repository.
+#
+# Accepts github.com, www.github.com, and ssh.github.com (SSH-over-443) as
+# hosts, matched case-insensitively. Parses by decomposing the URL into
+# (scheme, host, path) rather than matching whole-URL shapes with per-form
+# regexes -- the latter is what silently mis-parsed a port as the owner
+# (ssh://...:22/owner/repo) and left a trailing ".git" in place
+# (.../repo.git/, where the "/" strip ran before the ".git" strip). Any
+# unparseable or non-github.com URL returns 1 with nothing echoed; callers
+# that need an explicit --repo (create_pr.sh) treat that as fatal.
+cgw_remote_owner_repo() {
+  local remote="$1"
+  local url
+  url=$(git config --get "remote.${remote}.pushurl" 2>/dev/null) || url=""
+  if [[ -z "${url}" ]]; then
+    url=$(git config --get "remote.${remote}.url" 2>/dev/null) || return 1
+  fi
+  [[ -z "${url}" ]] && return 1
+
+  local scheme host path owner repo
+  if [[ "${url}" =~ ^([A-Za-z][A-Za-z0-9+.-]*)://([^/@]+@)?([^/:]+)(:[0-9]+)?/(.+)$ ]]; then
+    # scheme://[userinfo@]host[:port]/path -- userinfo captured only to
+    # discard it (may carry a CI token; never echoed, never logged).
+    scheme=$(printf '%s' "${BASH_REMATCH[1]}" | tr '[:upper:]' '[:lower:]')
+    case "${scheme}" in ssh | https | http | git) ;; *) return 1 ;; esac
+    host="${BASH_REMATCH[3]}"
+    path="${BASH_REMATCH[5]}"
+  elif [[ "${url}" =~ ^([^/@]+@)?([^/:]+):(.+)$ ]]; then
+    # scp-like [user@]host:path -- ':' is the path separator here, so no port
+    # can appear in this form. Conflating scp-like ':' with a URL port
+    # separator is what made ssh://...:22/owner/repo parse "22" as the owner.
+    # A Windows path (C:/...) also lands here and is rejected by the host
+    # check below.
+    host="${BASH_REMATCH[2]}"
+    path="${BASH_REMATCH[3]}"
+  else
+    return 1
+  fi
+
+  host=$(printf '%s' "${host}" | tr '[:upper:]' '[:lower:]')
+  case "${host}" in
+    github.com | www.github.com | ssh.github.com) ;;
+    *) return 1 ;;
+  esac
+
+  path="${path#/}"
+  while [[ "${path}" == */ ]]; do path="${path%/}"; done
+  # Strip ".git" AFTER trailing slashes, not before -- "repo.git/" does not
+  # end in literal ".git", so the opposite order leaves ".git" in the result.
+  path="${path%.git}"
+  while [[ "${path}" == */ ]]; do path="${path%/}"; done
+
+  owner="${path%%/*}"
+  repo="${path#*/}"
+  [[ "${owner}" == "${path}" ]] && return 1 # no '/' at all
+  [[ -z "${owner}" ]] || [[ -z "${repo}" ]] && return 1
+  [[ "${repo}" == */* ]] && return 1 # 3+ path segments is not a repo URL
+  # This value is handed straight to `gh --repo`: constrain to GitHub's real
+  # owner/repo charset and reject a leading '-' so it can never be read as a
+  # flag by a downstream command line.
+  [[ "${owner}" =~ ^[A-Za-z0-9._-]+$ ]] || return 1
+  [[ "${repo}" =~ ^[A-Za-z0-9._-]+$ ]] || return 1
+  [[ "${owner}" == -* ]] || [[ "${repo}" == -* ]] && return 1
+  echo "${owner}/${repo}"
+}
+
+# cgw_default_branch [--refresh]
+# Echoes the repository's default branch name (no remote prefix).
+# Resolution order:
+#   1. ${CGW_REMOTE}/HEAD symbolic ref (set by `git clone`, or `git remote set-head`)
+#   2. CGW_TARGET_BRANCH (config default, e.g. "main") -- used when origin/HEAD is
+#      unset, which is common for repos created via `remote add` + `push` rather
+#      than `git clone` (origin/HEAD is only auto-populated by a clone).
+# Pass --refresh to attempt `git remote set-head ${CGW_REMOTE} --auto` first
+# (requires network access to CGW_REMOTE; failure is silently ignored so this
+# stays usable offline). Returns 0 always.
+cgw_default_branch() {
+  if [[ "${1:-}" == "--refresh" ]]; then
+    git remote set-head "${CGW_REMOTE}" --auto >/dev/null 2>&1 || true
+  fi
+  local ref
+  ref="$(git symbolic-ref --quiet --short "refs/remotes/${CGW_REMOTE}/HEAD" 2>/dev/null)"
+  if [[ -n "${ref}" ]]; then
+    echo "${ref#"${CGW_REMOTE}"/}"
+  else
+    echo "${CGW_TARGET_BRANCH}"
+  fi
+}
+
+# cgw_require_gh
+# Verifies the gh CLI is installed and authenticated.
+# Prints an [ERROR] line via err() and returns 1 on either failure.
+# Silent, returns 0, on success. Callers own any section logging around it
+# (see create_pr.sh, pr_checkout.sh).
+cgw_require_gh() {
+  if ! command -v gh >/dev/null 2>&1; then
+    err "gh CLI not found. Install from https://cli.github.com/"
+    return 1
+  fi
+  if ! gh auth status >/dev/null 2>&1; then
+    err "gh CLI not authenticated. Run: gh auth login"
+    return 1
+  fi
+  return 0
+}
+
+# ensure_no_stale_index_lock - Detect and auto-remove abandoned .git/index.lock files.
+#
+# Stale locks (left by crashed/killed git processes) cause:
+#   "fatal: Unable to create '.git/index.lock': File exists."
+# This helper clears stale locks safely before any git-mutating operation.
+#
+# Safety: refuses to remove if a rebase/merge/cherry-pick/revert/bisect op is
+# in progress (detected via state dirs/sentinel files in the .git dir).
+# Handles git worktrees correctly by resolving the real .git dir via git itself.
+#
+# Honors:
+#   CGW_AUTO_REMOVE_INDEX_LOCK   (default 1): 0 = warn-only; 1 = auto-remove stale locks
+#   CGW_INDEX_LOCK_MAX_AGE_SECONDS (default 30): locks older than this are stale
+#   CGW_INDEX_LOCK_WAIT_SECONDS  (default 10): poll window for fresh locks
+#
+# Returns:
+#   0 - no lock present, OR lock cleared successfully, OR lock cleared during wait
+#   1 - refused to remove (op in progress, auto-remove disabled, rm failed, fresh+persistent)
+#   2 - environment problem (not a git repo, .git unreadable)
+ensure_no_stale_index_lock() {
+  # Resolve the real .git dir — handles worktrees where .git is a file, not dir.
+  # Use -C PROJECT_ROOT so the result is independent of the caller's cwd.
+  local git_dir
+  git_dir="$(git -C "${PROJECT_ROOT:-.}" rev-parse --git-dir 2>/dev/null)" || return 2
+  # Absolutise if relative (git outputs relative paths when cwd == PROJECT_ROOT,
+  # e.g. ".git"; from a linked worktree it's already absolute -- and on
+  # Windows/MSYS that means a drive-letter path like "C:/…", which does NOT
+  # match a bare "/*" glob, so both forms must be checked or this wrongly
+  # re-prefixes an already-absolute Windows path with PROJECT_ROOT).
+  [[ "${git_dir}" != /* && "${git_dir}" != [A-Za-z]:/* ]] && git_dir="${PROJECT_ROOT:-.}/${git_dir}"
+
+  local lock_file="${git_dir}/index.lock"
+  [[ -f "${lock_file}" ]] || return 0 # fast path: nothing to do
+
+  # Refuse if a git operation is actively in progress — removing the lock
+  # while rebase/merge/cherry-pick is paused (e.g. editor open) would corrupt it.
+  local -a active_op_sentinels=(
+    "${git_dir}/rebase-merge"
+    "${git_dir}/rebase-apply"
+    "${git_dir}/MERGE_HEAD"
+    "${git_dir}/CHERRY_PICK_HEAD"
+    "${git_dir}/REVERT_HEAD"
+    "${git_dir}/BISECT_LOG"
+  )
+  local sentinel
+  for sentinel in "${active_op_sentinels[@]}"; do
+    if [[ -e "${sentinel}" ]]; then
+      err_tee "[cgw-lock] REFUSED: git operation in progress (${sentinel##*/}). Resolve or abort it first."
+      return 1
+    fi
+  done
+
+  # Compute lock age in seconds. Clamp negative values (clock skew) to 0.
+  local now mtime age
+  now="$(date +%s)"
+  mtime="$(stat -c %Y "${lock_file}" 2>/dev/null || stat -f %m "${lock_file}" 2>/dev/null)" || {
+    err_tee "[cgw-lock] Could not stat ${lock_file}"
+    return 1
+  }
+  age=$((now - mtime))
+  ((age < 0)) && age=0
+
+  local max_age="${CGW_INDEX_LOCK_MAX_AGE_SECONDS:-30}"
+  local wait_sec="${CGW_INDEX_LOCK_WAIT_SECONDS:-10}"
+  local auto_remove="${CGW_AUTO_REMOVE_INDEX_LOCK:-1}"
+
+  if ((age < max_age)); then
+    # Lock is fresh — may belong to a concurrent git process. Poll briefly.
+    err_tee "[cgw-lock] index.lock is ${age}s old (threshold ${max_age}s); waiting up to ${wait_sec}s..."
+    local waited=0
+    while ((waited < wait_sec)); do
+      sleep 0.5 2>/dev/null || sleep 1 # busybox sleep may not support fractions
+      ((waited++))
+      [[ ! -f "${lock_file}" ]] && return 0 # lock cleared itself — done
+    done
+    # Re-compute age after waiting
+    now="$(date +%s)"
+    mtime="$(stat -c %Y "${lock_file}" 2>/dev/null || stat -f %m "${lock_file}" 2>/dev/null)" || mtime="${now}"
+    age=$((now - mtime))
+    ((age < 0)) && age=0
+    if ((age < max_age)); then
+      err_tee "[cgw-lock] Lock still present after ${wait_sec}s wait and age ${age}s < ${max_age}s threshold. Another git process may be active. Stopping."
+      return 1
+    fi
+  fi
+
+  # Lock is stale. Remove it (or refuse if auto-remove is disabled).
+  if [[ "${auto_remove}" != "1" ]]; then
+    err_tee "[cgw-lock] Stale index.lock detected (age ${age}s). CGW_AUTO_REMOVE_INDEX_LOCK=0 — not removing."
+    err_tee "[cgw-lock] Run: rm -f \"${lock_file}\""
+    return 1
+  fi
+
+  err_tee "[cgw-lock] Removing stale index.lock (age ${age}s): ${lock_file}"
+  if ! rm -f "${lock_file}"; then
+    err_tee "[cgw-lock] Failed to remove ${lock_file} — another process may hold it. Close other git sessions and retry."
+    return 1
+  fi
+  return 0
+}
+
+# cgw_rebase_in_progress — git-dir/worktree-safe rebase-in-progress check.
+#
+# Uses `git rev-parse --git-path` to resolve the actual state-dir paths,
+# so this works with linked worktrees (where .git is a file, not a dir),
+# submodules, and relocated GIT_DIR.  Callers must NOT hardcode
+# "${PROJECT_ROOT}/.git/rebase-merge" — use this function instead.
+#
+# Returns 0 if a rebase is in progress, 1 if none.
+cgw_rebase_in_progress() {
+  local d
+  d="$(git rev-parse --git-path rebase-merge 2>/dev/null)" && [[ -d "${d}" ]] && return 0
+  d="$(git rev-parse --git-path rebase-apply 2>/dev/null)" && [[ -d "${d}" ]] && return 0
+  return 1
+}
+
+# ── backup-tag module ──────────────────────────────────────────────────────────
+# Closed registry of CGW ops that create a backup tag before mutating state.
+# To add an op: edit this array AND add a cgw_create_backup_tag call to the script.
+declare -gra CGW_BACKUP_OPS=(merge cherry-pick docs-merge bisect rebase undo-commit recover rollback) 2>/dev/null || true
+
+# Create a lightweight tag pre-<op>-<timestamp>-<pid> at HEAD.
+# Sets global CGW_BACKUP_TAG. Warns but always proceeds on git tag failure.
+# Returns 1 only if <op> is not in CGW_BACKUP_OPS (programming error in caller).
+cgw_create_backup_tag() {
+  local op="$1"
+  local _found=0 _known
+  for _known in "${CGW_BACKUP_OPS[@]}"; do
+    [[ "${op}" == "${_known}" ]] && {
+      _found=1
+      break
+    }
+  done
+  if ((_found == 0)); then
+    err "cgw_create_backup_tag: unknown op '${op}' (must be one of: ${CGW_BACKUP_OPS[*]})"
+    return 1
+  fi
+  [[ -z "${timestamp:-}" ]] && get_timestamp
+  CGW_BACKUP_TAG="pre-${op}-${timestamp}-$$"
+  local _log="${logfile:-/dev/null}"
+  if git tag "${CGW_BACKUP_TAG}" >>"${_log}" 2>&1; then
+    echo "[OK] Created backup tag: ${CGW_BACKUP_TAG}" | tee -a "${_log}"
+  else
+    echo "[!] Could not create backup tag: ${CGW_BACKUP_TAG} (continuing)" | tee -a "${_log}"
+  fi
+  return 0
+}
+
+# Echo the glob pattern for the given op, or one pattern per op if no arg.
+cgw_backup_tag_glob() {
+  local _op="${1:-}"
+  if [[ -n "${_op}" ]]; then
+    printf 'pre-%s-*\n' "${_op}"
+  else
+    local _known
+    for _known in "${CGW_BACKUP_OPS[@]}"; do
+      printf 'pre-%s-*\n' "${_known}"
+    done
+  fi
+}
+
+# Echo existing backup tags (one per line). Pass an op name to filter to one op.
+cgw_list_backup_tags() {
+  local _op="${1:-}"
+  if [[ -n "${_op}" ]]; then
+    git tag -l "pre-${_op}-*"
+  else
+    local _known
+    for _known in "${CGW_BACKUP_OPS[@]}"; do
+      git tag -l "pre-${_known}-*"
+    done
+  fi
+}
+
+# ── local-only file matcher ────────────────────────────────────────────────────
+# Single source of truth for matching paths against CGW_LOCAL_FILES.
+# Match contract (no globs):
+#   Entry with trailing slash ("dir/") — path matches if path == "dir" OR path == "dir/"*
+#   Entry without trailing slash       — exact match (path == entry)
+#   CGW_LOCAL_FILES_EXEMPT entries     — exact match suppresses local-file match
+# Returns 0 (match) / 1 (no match).
+cgw_is_local_file() {
+  local path="$1" entry
+  local -a _exempt_arr=() _local_arr=()
+  read -r -a _exempt_arr <<<"${CGW_LOCAL_FILES_EXEMPT:-}" || true
+  read -r -a _local_arr <<<"${CGW_LOCAL_FILES:-}" || true
+  for entry in "${_exempt_arr[@]+"${_exempt_arr[@]}"}"; do
+    [[ "${path}" == "${entry}" ]] && return 1
+  done
+  for entry in "${_local_arr[@]+"${_local_arr[@]}"}"; do
+    if [[ "${entry}" == */ ]]; then
+      local dir="${entry%/}"
+      [[ "${path}" == "${dir}" || "${path}" == "${dir}"/* ]] && return 0
+    else
+      [[ "${path}" == "${entry}" ]] && return 0
+    fi
+  done
+  return 1
+}
+
+# Filter paths from stdin (one per line) or positional args.
+# Echoes only matching paths to stdout; returns 0 if any matched, 1 if none.
+cgw_filter_local_files() {
+  local p any=1
+  if (($# > 0)); then
+    for p in "$@"; do
+      cgw_is_local_file "${p}" && {
+        echo "${p}"
+        any=0
+      }
+    done
+  else
+    while IFS= read -r p; do
+      cgw_is_local_file "${p}" && {
+        echo "${p}"
+        any=0
+      }
+    done
+  fi
+  return ${any}
+}
+
+# cgw_guard_incoming_local_files <mode> <ref-or-paths...>
+#   Guards commit-producing paths that don't go through commit_enhanced.sh
+#   (which already unstages CGW_LOCAL_FILES) against propagating a local-only
+#   file into shared history. <mode> selects how the incoming change set is
+#   computed; matched paths are reported.
+#     merge        — union of files touched by any commit reachable from <ref>
+#                    but not HEAD (HEAD..<ref>), so an add-then-delete on the
+#                    source branch is still caught even though it nets to no
+#                    change in the merge-base..tip tree diff
+#     cherry-pick  — files touched by commit <ref>
+#     amend        — files in commit <ref> (default HEAD)
+#     list         — the paths themselves, passed as args 2..N (e.g. a partial
+#                    cherry-pick's selected file subset)
+#   Returns 0 = proceed (nothing matched, or override set); 1 = abort.
+#   Non-interactive aborts unless CGW_ALLOW_LOCAL_FILES_IN_MERGE=1; interactive
+#   prompts (default no). Reuses cgw_filter_local_files / cgw_is_local_file.
+cgw_guard_incoming_local_files() {
+  local mode="$1" ref="${2:-HEAD}"
+  local label="${mode}"
+  local -a incoming=() _src_cmd=()
+  case "${mode}" in
+    merge) _src_cmd=(git log --name-only --pretty=format: "HEAD..${ref}") ;;
+    cherry-pick | amend) _src_cmd=(git show --name-only --format= "${ref}") ;;
+    list)
+      _src_cmd=(printf '%s\n' "${@:2}")
+      label="change set"
+      ;;
+    *)
+      err "cgw_guard_incoming_local_files: unknown mode '${mode}'"
+      return 2
+      ;;
+  esac
+  local _p
+  while IFS= read -r _p; do
+    [[ -n "${_p}" ]] && incoming+=("${_p}")
+  done < <("${_src_cmd[@]}" 2>/dev/null | cgw_filter_local_files)
+
+  [[ ${#incoming[@]} -eq 0 ]] && return 0
+
+  err_tee "[!] Incoming ${label} carries local-only file(s) that must not enter shared history:"
+  local f
+  for f in "${incoming[@]}"; do
+    err_tee "      ${f}"
+  done
+
+  if [[ "${CGW_ALLOW_LOCAL_FILES_IN_MERGE:-0}" == "1" ]]; then
+    err_tee "[!] CGW_ALLOW_LOCAL_FILES_IN_MERGE=1 -- proceeding despite local-only files."
+    return 0
+  fi
+  if [[ "${CGW_NON_INTERACTIVE:-0}" == "1" ]]; then
+    err_tee "[!] Aborting. Remove these files from the incoming change, or set CGW_ALLOW_LOCAL_FILES_IN_MERGE=1 to override."
+    return 1
+  fi
+  cgw_confirm "Proceed and include these local-only file(s)?" --default no
+}
+
+# ── conflict-policy module ─────────────────────────────────────────────────────
+# Single source of truth for git conflict classification and safe auto-resolution.
+#
+# cgw_classify_conflicts [<porcelain_override>]
+#   Parses git status --short (or an optional injected fixture string) into eight
+#   category arrays. Returns 0 if any conflicts present, 1 if none.
+#
+# cgw_resolve_safe_conflicts <op> <original_branch>
+#   Owns the policy: auto-resolves DU + DD (propagates failure), re-classifies,
+#   emits per-category halt messages with op-specific recovery footer.
+#   Sets CGW_CONFLICT_STATE (none|resolved|unresolved). Returns 0 if no manual
+#   action needed, 1 if caller should exit 1.
+
+# Conflict-category arrays — reset on every cgw_classify_conflicts call.
+declare -g CGW_CONFLICT_DU_FILES=() # modify/delete   (auto-resolvable: git rm)
+declare -g CGW_CONFLICT_DD_FILES=() # both deleted    (auto-resolvable: git rm)
+declare -g CGW_CONFLICT_UU_FILES=() # both modified   (halt: content conflict)
+declare -g CGW_CONFLICT_AU_FILES=() # add/unmerged    (halt: add-side)
+declare -g CGW_CONFLICT_AA_FILES=() # both added      (halt: add-side)
+declare -g CGW_CONFLICT_UD_FILES=() # deleted by them (halt: accept deletion vs keep ours)
+declare -g CGW_CONFLICT_AD_FILES=() # added by us, deleted by theirs  (halt: keep-ours vs keep-theirs)
+declare -g CGW_CONFLICT_DA_FILES=() # deleted by us, added by theirs  (halt: keep-ours vs keep-theirs)
+declare -g CGW_CONFLICT_TOTAL=0
+# shellcheck disable=SC2034  # CGW_CONFLICT_STATE is read by callers outside _common.sh
+declare -g CGW_CONFLICT_STATE="none" # none | resolved | unresolved
+
+# shellcheck disable=SC2120  # optional arg used by unit tests; callers inside file omit it
+cgw_classify_conflicts() {
+  CGW_CONFLICT_DU_FILES=()
+  CGW_CONFLICT_DD_FILES=()
+  CGW_CONFLICT_UU_FILES=()
+  CGW_CONFLICT_AU_FILES=()
+  CGW_CONFLICT_AA_FILES=()
+  CGW_CONFLICT_UD_FILES=()
+  CGW_CONFLICT_AD_FILES=()
+  CGW_CONFLICT_DA_FILES=()
+  CGW_CONFLICT_TOTAL=0
+
+  # Inner classifier shared by both paths.  Receives XY<space>path per call.
+  _cgw_classify_one() {
+    local code="${1:0:2}"
+    local path="${1:3}"
+    [[ -z "${path}" ]] && return
+    case "${code}" in
+      DU)
+        CGW_CONFLICT_DU_FILES+=("${path}")
+        CGW_CONFLICT_TOTAL=$((CGW_CONFLICT_TOTAL + 1))
+        ;;
+      DD)
+        CGW_CONFLICT_DD_FILES+=("${path}")
+        CGW_CONFLICT_TOTAL=$((CGW_CONFLICT_TOTAL + 1))
+        ;;
+      UU)
+        CGW_CONFLICT_UU_FILES+=("${path}")
+        CGW_CONFLICT_TOTAL=$((CGW_CONFLICT_TOTAL + 1))
+        ;;
+      AU)
+        CGW_CONFLICT_AU_FILES+=("${path}")
+        CGW_CONFLICT_TOTAL=$((CGW_CONFLICT_TOTAL + 1))
+        ;;
+      AA)
+        CGW_CONFLICT_AA_FILES+=("${path}")
+        CGW_CONFLICT_TOTAL=$((CGW_CONFLICT_TOTAL + 1))
+        ;;
+      UD)
+        CGW_CONFLICT_UD_FILES+=("${path}")
+        CGW_CONFLICT_TOTAL=$((CGW_CONFLICT_TOTAL + 1))
+        ;;
+      AD)
+        CGW_CONFLICT_AD_FILES+=("${path}")
+        CGW_CONFLICT_TOTAL=$((CGW_CONFLICT_TOTAL + 1))
+        ;;
+      DA)
+        CGW_CONFLICT_DA_FILES+=("${path}")
+        CGW_CONFLICT_TOTAL=$((CGW_CONFLICT_TOTAL + 1))
+        ;;
+    esac
+  }
+
+  if [[ $# -gt 0 ]]; then
+    # Test-injection path: caller passes newline-delimited porcelain text.
+    # Kept for unit-test compatibility (tests/unit/common.bats injects text directly).
+    local line
+    while IFS= read -r line; do
+      [[ -z "${line}" ]] && continue
+      _cgw_classify_one "${line}"
+    done <<<"$1"
+  else
+    # Production path: NUL-delimited --porcelain -z never C-quotes paths,
+    # so paths with spaces, Unicode, and special characters are preserved exactly.
+    # This is the documented-stable format contract (unlike --short which is human output).
+    local record
+    while IFS= read -r -d $'\0' record; do
+      [[ -z "${record}" ]] && continue
+      _cgw_classify_one "${record}"
+    done < <(git status --porcelain -z 2>/dev/null || true)
+  fi
+
+  unset -f _cgw_classify_one
+  [[ "${CGW_CONFLICT_TOTAL}" -gt 0 ]]
+}
+
+# shellcheck disable=SC2034  # CGW_CONFLICT_STATE is read by callers outside _common.sh
+cgw_resolve_safe_conflicts() {
+  local op="$1" original_branch="$2"
+  local _log="${logfile:-/dev/null}"
+  CGW_CONFLICT_STATE="none"
+
+  cgw_classify_conflicts
+  if [[ "${CGW_CONFLICT_TOTAL}" -eq 0 ]]; then
+    return 0
+  fi
+
+  # Auto-resolve DU (modify/delete): accept the deletion.
+  local f resolution_failed=0
+  for f in "${CGW_CONFLICT_DU_FILES[@]}"; do
+    echo "  Found modify/delete conflict: ${f}"
+    if git rm "${f}" >/dev/null 2>&1; then
+      echo "  [OK] Removed: ${f}"
+    else
+      echo "  [FAIL] Failed to remove ${f}"
+      resolution_failed=1
+    fi
+  done
+
+  # Auto-resolve DD (both deleted): same as DU — propagate failure.
+  for f in "${CGW_CONFLICT_DD_FILES[@]}"; do
+    echo "  Found both-deleted conflict: ${f}"
+    if git rm "${f}" >/dev/null 2>&1; then
+      echo "  [OK] Removed (both deleted): ${f}"
+    else
+      echo "  [FAIL] Failed to remove ${f}"
+      resolution_failed=1
+    fi
+  done
+
+  if [[ "${resolution_failed}" -eq 1 ]]; then
+    err_tee "[FAIL] Auto-resolution failed for some files"
+    CGW_CONFLICT_STATE="unresolved"
+    return 1
+  fi
+
+  # Capture auto-resolve count before re-classify resets the arrays.
+  local auto_resolved=$((${#CGW_CONFLICT_DU_FILES[@]} + ${#CGW_CONFLICT_DD_FILES[@]}))
+
+  # Re-classify so halt checks see the post-rm state (fixes stale-snapshot bug).
+  cgw_classify_conflicts
+  if [[ "${CGW_CONFLICT_TOTAL}" -eq 0 ]]; then
+    if [[ "${auto_resolved}" -gt 0 ]]; then
+      echo "[OK] Auto-resolved modify/delete and both-deleted conflicts" | tee -a "${_log}"
+    fi
+    CGW_CONFLICT_STATE="resolved"
+    return 0
+  fi
+
+  if [[ "${auto_resolved}" -gt 0 ]]; then
+    echo "[OK] Auto-resolved modify/delete and both-deleted conflicts" | tee -a "${_log}"
+  fi
+
+  # Op-specific recovery footer.
+  local continue_hint abort_hint
+  case "${op}" in
+    merge)
+      continue_hint="  1. Edit conflicted files
+  2. git add <resolved files>
+  3. git commit"
+      abort_hint="Or abort: git merge --abort && git checkout ${original_branch}"
+      ;;
+    cherry-pick)
+      continue_hint="  1. Edit conflicted files
+  2. git add <resolved files>
+  3. git cherry-pick --continue"
+      abort_hint="Or abort: git cherry-pick --abort && git checkout ${original_branch}"
+      ;;
+    *)
+      continue_hint="  1. Edit conflicted files
+  2. git add <resolved files>"
+      abort_hint="Or restore: git checkout ${original_branch}"
+      ;;
+  esac
+
+  local any_halt=0
+
+  # UU — both modified (content conflict)
+  if [[ "${#CGW_CONFLICT_UU_FILES[@]}" -gt 0 ]]; then
+    echo "" | tee -a "${_log}"
+    err_tee "[FAIL] Content conflicts require manual resolution:"
+    printf '  %s\n' "${CGW_CONFLICT_UU_FILES[@]}" | tee -a "${_log}"
+    echo ""
+    echo "Please resolve manually:"
+    printf '%s\n' "${continue_hint}"
+    echo ""
+    printf '%s\n' "${abort_hint}"
+    any_halt=1
+  fi
+
+  # AU/AA — add-side conflicts
+  if [[ $((${#CGW_CONFLICT_AU_FILES[@]} + ${#CGW_CONFLICT_AA_FILES[@]})) -gt 0 ]]; then
+    echo "" | tee -a "${_log}"
+    err_tee "[FAIL] Add/add or add/unmerged conflicts require manual resolution:"
+    [[ "${#CGW_CONFLICT_AU_FILES[@]}" -gt 0 ]] &&
+      printf '  %s\n' "${CGW_CONFLICT_AU_FILES[@]}" | tee -a "${_log}"
+    [[ "${#CGW_CONFLICT_AA_FILES[@]}" -gt 0 ]] &&
+      printf '  %s\n' "${CGW_CONFLICT_AA_FILES[@]}" | tee -a "${_log}"
+    echo ""
+    echo "Please resolve manually:"
+    printf '%s\n' "${continue_hint}"
+    echo ""
+    printf '%s\n' "${abort_hint}"
+    any_halt=1
+  fi
+
+  # UD — updated by us, deleted by them
+  if [[ "${#CGW_CONFLICT_UD_FILES[@]}" -gt 0 ]]; then
+    echo "" | tee -a "${_log}"
+    err_tee "[FAIL] Deleted-by-them conflicts require manual resolution:"
+    printf '  %s\n' "${CGW_CONFLICT_UD_FILES[@]}" | tee -a "${_log}"
+    echo ""
+    echo "Please resolve manually (for each file):"
+    echo "  Accept deletion: git rm <file>"
+    echo "  Keep ours:       git add <file>"
+    echo ""
+    printf '%s\n' "${abort_hint}"
+    any_halt=1
+  fi
+
+  # AD/DA — add/delete conflicts
+  if [[ $((${#CGW_CONFLICT_AD_FILES[@]} + ${#CGW_CONFLICT_DA_FILES[@]})) -gt 0 ]]; then
+    echo "" | tee -a "${_log}"
+    err_tee "[FAIL] Add/delete conflicts require manual resolution:"
+    [[ "${#CGW_CONFLICT_AD_FILES[@]}" -gt 0 ]] &&
+      printf '  %s\n' "${CGW_CONFLICT_AD_FILES[@]}" | tee -a "${_log}"
+    [[ "${#CGW_CONFLICT_DA_FILES[@]}" -gt 0 ]] &&
+      printf '  %s\n' "${CGW_CONFLICT_DA_FILES[@]}" | tee -a "${_log}"
+    echo ""
+    echo "Please resolve manually (for each file):"
+    echo "  Keep ours:   git checkout --ours <file> && git add <file>"
+    echo "  Keep theirs: git checkout --theirs <file> && git add <file>"
+    echo ""
+    printf '%s\n' "${abort_hint}"
+    any_halt=1
+  fi
+
+  if [[ "${any_halt}" -eq 1 ]]; then
+    CGW_CONFLICT_STATE="unresolved"
+    return 1
+  fi
+
+  CGW_CONFLICT_STATE="resolved"
+  return 0
+}
+
+# Print a categorised conflict file list from the most recent cgw_classify_conflicts call.
+# Does nothing if CGW_CONFLICT_TOTAL == 0.
+cgw_print_conflict_summary() {
+  [[ "${CGW_CONFLICT_TOTAL}" -eq 0 ]] && return 0
+  local _f
+  echo "  Conflicting files:"
+  for _f in "${CGW_CONFLICT_UU_FILES[@]}"; do echo "    ${_f} (both modified)"; done
+  for _f in "${CGW_CONFLICT_DU_FILES[@]}"; do echo "    ${_f} (modify/delete)"; done
+  for _f in "${CGW_CONFLICT_UD_FILES[@]}"; do echo "    ${_f} (deleted by them)"; done
+  for _f in "${CGW_CONFLICT_AA_FILES[@]}"; do echo "    ${_f} (both added)"; done
+  for _f in "${CGW_CONFLICT_AU_FILES[@]}"; do echo "    ${_f} (add/unmerged)"; done
+  for _f in "${CGW_CONFLICT_AD_FILES[@]}"; do echo "    ${_f} (added by us, deleted by theirs)"; done
+  for _f in "${CGW_CONFLICT_DA_FILES[@]}"; do echo "    ${_f} (deleted by us, added by theirs)"; done
+  for _f in "${CGW_CONFLICT_DD_FILES[@]}"; do echo "    ${_f} (both deleted)"; done
+}
+
+# ── lint pipeline module ───────────────────────────────────────────────────────
+# Shared helpers for venv-aware binary resolution, file-list selection, lint
+# check, format check, lint/format fix, markdownlint, and typecheck. Callers:
+# commit_enhanced.sh, check_lint.sh, fix_lint.sh, .githooks/pre-commit.
+#
+# cgw_resolve_lint_binary <cmd>
+#   Stdout: absolute path to .venv/<cmd>${PYTHON_EXT} when the binary exists in
+#   the active venv, else <cmd> verbatim (falls back to system PATH).
+#   Reads PYTHON_BIN and PYTHON_EXT — caller must pre-populate via get_python_path.
+#   Returns 0 always; pure path resolution, no side effects.
+
+cgw_resolve_lint_binary() {
+  local cmd="$1"
+  if [[ -n "${PYTHON_BIN:-}" ]] && [[ -f "${PYTHON_BIN}/${cmd}${PYTHON_EXT:-}" ]]; then
+    echo "${PYTHON_BIN}/${cmd}${PYTHON_EXT:-}"
+  else
+    echo "${cmd}"
+  fi
+}
+
+# cgw_strip_path_arg <args-string>
+#   Echo args-string with its file-position placeholder removed, so a scoped
+#   caller can append an explicit file list. Recognizes an explicit "{files}"
+#   token (preferred convention) anywhere in the string; otherwise removes a
+#   standalone "." token (legacy convention). All other tokens — flags and
+#   non-dot paths — are preserved. This is the A3 fix: the old implementation
+#   stripped only the LAST token, so args like "check . --fix" silently kept the
+#   whole-repo "." and reverted to an unscoped scan. Space-safe (read -r -a).
+cgw_strip_path_arg() {
+  local -a toks=() out=()
+  read -r -a toks <<<"${1:-}"
+  local tok has_placeholder=0 has_dot=0
+  for tok in "${toks[@]+"${toks[@]}"}"; do
+    [[ "${tok}" == "{files}" ]] && has_placeholder=1
+    [[ "${tok}" == "." ]] && has_dot=1
+  done
+  # No identifiable path token in a multi-token string: we can't know whether a
+  # token like "src/" is a scan target (should be replaced) or a flag argument
+  # (must be kept), so we keep everything and append files. Hint the explicit
+  # convention. Single tokens ("check", "run") are subcommands, not paths.
+  if [[ ${has_placeholder} -eq 0 && ${has_dot} -eq 0 && ${#toks[@]} -gt 1 ]]; then
+    echo "[cgw-lint] cannot identify a path token in '${1}'; appending files -- put {files} where the scan target goes to make scoping explicit" >&2
+  fi
+  for tok in "${toks[@]+"${toks[@]}"}"; do
+    if [[ ${has_placeholder} -eq 1 ]]; then
+      [[ "${tok}" == "{files}" ]] && continue
+    else
+      [[ "${tok}" == "." ]] && continue
+    fi
+    out+=("${tok}")
+  done
+  echo "${out[*]+"${out[*]}"}"
+}
+
+# cgw_fill_path_placeholder <args-string> [default-path]
+#   Echo args-string with the "{files}" placeholder replaced by <default-path>
+#   (default "."). Used by the whole-repo/audit branch so an args template that
+#   carries "{files}" (e.g. "check {files}") expands to a real path ("check .")
+#   instead of leaking the literal token to the tool. Legacy args without
+#   "{files}" pass through unchanged (they already carry their own path).
+cgw_fill_path_placeholder() {
+  local args="${1:-}" default_path="${2:-.}"
+  echo "${args//\{files\}/${default_path}}"
+}
+
+# cgw_modified_files_for_lint
+#   Stdout: newline-separated list of modified/added files matching
+#   CGW_LINT_EXTENSIONS (default: *.py). Outputs nothing when no files match.
+#   Caller checks for empty output and decides whether to skip early.
+cgw_modified_files_for_lint() {
+  local -a lint_exts
+  read -r -a lint_exts <<<"${CGW_LINT_EXTENSIONS:-*.py}"
+  git diff --name-only --diff-filter=ACMR HEAD -- "${lint_exts[@]}"
+}
+
+# cgw_run_lint_check [files...]
+#   Runs ${CGW_LINT_CMD} check against the project (no files) or a given file
+#   list (strips trailing path token from CGW_LINT_CHECK_ARGS when files given).
+#   Honors CGW_SKIP_LINT=1 and empty CGW_LINT_CMD (returns 0, emits skip line).
+#   Reads ${logfile} from caller scope. Sets TOOL_ERROR_COUNT via run_tool_with_logging.
+#   Returns 0 = clean, 1 = errors found.
+cgw_run_lint_check() {
+  if [[ "${CGW_SKIP_LINT:-0}" == "1" ]]; then
+    echo "  (lint check skipped -- CGW_SKIP_LINT=1)"
+    return 0
+  fi
+  if [[ -z "${CGW_LINT_CMD:-}" ]]; then
+    echo "  (lint check skipped -- CGW_LINT_CMD not set)"
+    return 0
+  fi
+  get_python_path 2>/dev/null || true
+  local lint_bin
+  lint_bin=$(cgw_resolve_lint_binary "${CGW_LINT_CMD}")
+  if [[ $# -gt 0 ]]; then
+    local stripped_args
+    stripped_args=$(cgw_strip_path_arg "${CGW_LINT_CHECK_ARGS:-}")
+    # shellcheck disable=SC2086  # Word splitting intentional: stripped_args contains multiple flags
+    run_tool_with_logging "LINT CHECK" "${logfile}" "${lint_bin}" ${stripped_args} "$@"
+  else
+    local filled_args
+    filled_args=$(cgw_fill_path_placeholder "${CGW_LINT_CHECK_ARGS:-}")
+    # shellcheck disable=SC2086  # Word splitting intentional: filled_args/CGW_LINT_EXCLUDES contain multiple flags
+    run_tool_with_logging "LINT CHECK" "${logfile}" "${lint_bin}" ${filled_args} ${CGW_LINT_EXCLUDES:-}
+  fi
+}
+
+# cgw_run_format_check [files...]
+#   Runs ${CGW_FORMAT_CMD} format check. Same file-list and skip conventions as
+#   cgw_run_lint_check. Returns 0 silently when CGW_FORMAT_CMD is unset.
+#   Honors CGW_FORMAT_CHECK_NONBLOCKING=1 (internal knob, not meant to be
+#   exported by users) -- when set, a failing check's log-section footer
+#   reads "WARN" instead of "FAILED" (via CGW_SECTION_FAIL_LABEL below).
+#   The exit code / return value are unaffected either way; callers that
+#   want non-blocking behavior (check_lint.sh) decide that separately by
+#   not gating their own overall_status on this function's return code.
+cgw_run_format_check() {
+  if [[ "${CGW_SKIP_LINT:-0}" == "1" ]]; then
+    return 0
+  fi
+  [[ -z "${CGW_FORMAT_CMD:-}" ]] && return 0
+  get_python_path 2>/dev/null || true
+  local format_bin
+  format_bin=$(cgw_resolve_lint_binary "${CGW_FORMAT_CMD}")
+  # shellcheck disable=SC2034  # read via dynamic scope by log_section_end
+  local CGW_SECTION_FAIL_LABEL=""
+  [[ "${CGW_FORMAT_CHECK_NONBLOCKING:-0}" == "1" ]] && CGW_SECTION_FAIL_LABEL="WARN"
+  if [[ $# -gt 0 ]]; then
+    local stripped_args
+    stripped_args=$(cgw_strip_path_arg "${CGW_FORMAT_CHECK_ARGS:-}")
+    # shellcheck disable=SC2086
+    run_tool_with_logging "FORMAT CHECK" "${logfile}" "${format_bin}" ${stripped_args} "$@"
+  else
+    local filled_args
+    filled_args=$(cgw_fill_path_placeholder "${CGW_FORMAT_CHECK_ARGS:-}")
+    # shellcheck disable=SC2086
+    run_tool_with_logging "FORMAT CHECK" "${logfile}" "${format_bin}" ${filled_args} ${CGW_FORMAT_EXCLUDES:-}
+  fi
+}
+
+# cgw_run_lint_fix [files...]
+#   Runs lint --fix then format --fix (bundled, since every caller pairs them).
+#   Honors CGW_SKIP_LINT=1. Returns 0 if all fixers exited clean; 1 on any error.
+#   Returns 0 when neither CGW_LINT_CMD nor CGW_FORMAT_CMD is set.
+cgw_run_lint_fix() {
+  if [[ "${CGW_SKIP_LINT:-0}" == "1" ]]; then
+    echo "  (lint fix skipped -- CGW_SKIP_LINT=1)"
+    return 0
+  fi
+  local fix_failed=0
+  if [[ -n "${CGW_LINT_CMD:-}" ]]; then
+    get_python_path 2>/dev/null || true
+    local lint_bin
+    lint_bin=$(cgw_resolve_lint_binary "${CGW_LINT_CMD}")
+    if [[ $# -gt 0 ]]; then
+      local stripped_args
+      stripped_args=$(cgw_strip_path_arg "${CGW_LINT_FIX_ARGS:-}")
+      # shellcheck disable=SC2086
+      run_tool_with_logging "LINT AUTO-FIX" "${logfile}" "${lint_bin}" ${stripped_args} "$@" || fix_failed=1
+    else
+      local filled_args
+      filled_args=$(cgw_fill_path_placeholder "${CGW_LINT_FIX_ARGS:-}")
+      # shellcheck disable=SC2086
+      run_tool_with_logging "LINT AUTO-FIX" "${logfile}" "${lint_bin}" ${filled_args} ${CGW_LINT_EXCLUDES:-} || fix_failed=1
+    fi
+  fi
+  if [[ -n "${CGW_FORMAT_CMD:-}" ]]; then
+    get_python_path 2>/dev/null || true
+    local format_bin
+    format_bin=$(cgw_resolve_lint_binary "${CGW_FORMAT_CMD}")
+    if [[ $# -gt 0 ]]; then
+      local stripped_args
+      stripped_args=$(cgw_strip_path_arg "${CGW_FORMAT_FIX_ARGS:-}")
+      # shellcheck disable=SC2086
+      run_tool_with_logging "FORMAT FIX" "${logfile}" "${format_bin}" ${stripped_args} "$@" || fix_failed=1
+    else
+      local filled_args
+      filled_args=$(cgw_fill_path_placeholder "${CGW_FORMAT_FIX_ARGS:-}")
+      # shellcheck disable=SC2086
+      run_tool_with_logging "FORMAT FIX" "${logfile}" "${format_bin}" ${filled_args} ${CGW_FORMAT_EXCLUDES:-} || fix_failed=1
+    fi
+  fi
+  return $fix_failed
+}
+
+# cgw_run_markdownlint_check [files...]
+#   Runs ${CGW_MARKDOWNLINT_CMD}. Honors CGW_SKIP_MD_LINT=1 and empty
+#   CGW_MARKDOWNLINT_CMD (returns 0 silently when unconfigured).
+#   Returns 0 = clean (or skipped/unconfigured), 1 = errors found.
+#   CGW_MARKDOWNLINT_CMD is word-split into an array (not exec'd as a single
+#   token) because auto-detection (_config.sh) can resolve it to a multi-word
+#   command -- "npx --yes markdownlint-cli2" -- which must reach exec as three
+#   argv entries, not one nonexistent binary named with embedded spaces.
+cgw_run_markdownlint_check() {
+  if [[ "${CGW_SKIP_MD_LINT:-0}" == "1" ]]; then
+    echo "  (markdown lint skipped -- CGW_SKIP_MD_LINT=1)"
+    return 0
+  fi
+  [[ -z "${CGW_MARKDOWNLINT_CMD:-}" ]] && return 0
+  # markdownlint-cli2 diagnostics are "file:line[:col] MDxxx/rule ..." -- no
+  # trailing colon after the position, so the default file:line:col: pattern
+  # counts them as 0 errors.
+  # shellcheck disable=SC2034  # read via dynamic scope by run_tool_with_logging
+  local CGW_TOOL_ERROR_REGEX='^[^:]+:[0-9]+(:[0-9]+)? [A-Za-z]'
+  local -a _md_cmd=()
+  read -r -a _md_cmd <<<"${CGW_MARKDOWNLINT_CMD}"
+  if [[ $# -gt 0 ]]; then
+    # Scoped: the explicit file list, then flags/exclusions. markdownlint-cli2
+    # (globby) resolves glob args in order -- a "!CLAUDE.md" exclusion only
+    # removes matches already added by an earlier positive glob, so it MUST
+    # come after the target, not before (verified: reversing this order
+    # silently stops excluding CLAUDE.md/MEMORY.md from the scan).
+    # shellcheck disable=SC2086
+    run_tool_with_logging "MARKDOWN LINT" "${logfile}" "${_md_cmd[@]}" "$@" ${CGW_MARKDOWNLINT_ARGS:-}
+  else
+    # Audit/whole-repo: the default PATHS glob, then flags/exclusions -- same
+    # target-before-exclusion ordering as the scoped branch above. PATHS is
+    # word-split via read (not left unquoted) so bash's own pathname
+    # expansion never touches it -- an unquoted "**/*.md" without globstar
+    # silently degrades to "*/*.md" (one directory deep only), passing a
+    # partial file list to markdownlint-cli2 instead of its literal glob.
+    local -a _md_paths=()
+    read -r -a _md_paths <<<"${CGW_MARKDOWNLINT_PATHS:-}"
+    # shellcheck disable=SC2086
+    run_tool_with_logging "MARKDOWN LINT" "${logfile}" "${_md_cmd[@]}" "${_md_paths[@]}" ${CGW_MARKDOWNLINT_ARGS:-}
+  fi
+}
+
+# cgw_run_markdownlint_fix [files...]
+#   Runs ${CGW_MARKDOWNLINT_CMD} ${CGW_MARKDOWNLINT_FIX_ARGS}. Same skip/unset/
+#   scoping conventions as cgw_run_markdownlint_check (including the word-split
+#   for a multi-word auto-detected command, e.g. the npx fallback).
+#   Returns 0 = all fixed (or skipped/unconfigured), 1 = unfixable errors remain.
+cgw_run_markdownlint_fix() {
+  if [[ "${CGW_SKIP_MD_LINT:-0}" == "1" ]]; then
+    echo "  (markdown fix skipped -- CGW_SKIP_MD_LINT=1)"
+    return 0
+  fi
+  [[ -z "${CGW_MARKDOWNLINT_CMD:-}" ]] && return 0
+  # Same diagnostic shape as cgw_run_markdownlint_check -- unfixable errors
+  # print as "file:line[:col] MDxxx/rule ..." and must count.
+  # shellcheck disable=SC2034  # read via dynamic scope by run_tool_with_logging
+  local CGW_TOOL_ERROR_REGEX='^[^:]+:[0-9]+(:[0-9]+)? [A-Za-z]'
+  local -a _md_cmd=()
+  read -r -a _md_cmd <<<"${CGW_MARKDOWNLINT_CMD}"
+  if [[ $# -gt 0 ]]; then
+    # --fix is a flag (order-independent); the target file list must still
+    # precede the ARGS exclusion globs -- see cgw_run_markdownlint_check.
+    # shellcheck disable=SC2086
+    run_tool_with_logging "MARKDOWN FIX" "${logfile}" "${_md_cmd[@]}" ${CGW_MARKDOWNLINT_FIX_ARGS:-} "$@" ${CGW_MARKDOWNLINT_ARGS:-}
+  else
+    # PATHS word-split via read, not left unquoted -- see cgw_run_markdownlint_check.
+    local -a _md_paths=()
+    read -r -a _md_paths <<<"${CGW_MARKDOWNLINT_PATHS:-}"
+    # shellcheck disable=SC2086
+    run_tool_with_logging "MARKDOWN FIX" "${logfile}" "${_md_cmd[@]}" ${CGW_MARKDOWNLINT_FIX_ARGS:-} "${_md_paths[@]}" ${CGW_MARKDOWNLINT_ARGS:-}
+  fi
+}
+
+# cgw_staged_files_for_md
+#   Stdout: newline-separated staged (index) markdown files (added/copied/
+#   modified/renamed). Uses --cached because the commit gate lints what is being
+#   committed. Outputs nothing when no staged *.md files; caller skips the step.
+cgw_staged_files_for_md() {
+  git diff --cached --name-only --diff-filter=ACMR -- '*.md'
+}
+
+# cgw_modified_files_for_md
+#   Stdout: newline-separated markdown files modified/added vs HEAD (working
+#   tree, not the index) -- the counterpart to cgw_staged_files_for_md, used by
+#   fix_lint.sh --modified-only which operates on disk, not the index. Mirrors
+#   cgw_modified_files_for_lint's diff-filter contract (deletions excluded, so
+#   a locally deleted file is never re-created by --fix).
+cgw_modified_files_for_md() {
+  git diff --name-only --diff-filter=ACMR HEAD -- '*.md'
+}
+
+# cgw_staged_files_for_lint
+#   Stdout: newline-separated staged (index) files matching CGW_LINT_EXTENSIONS
+#   (default *.py). The commit gate's code-quality checks must scope to what is
+#   being committed — not the whole repo — so an unrelated file's lint error
+#   can't block the commit and auto-fix can't rewrite files outside the commit.
+cgw_staged_files_for_lint() {
+  local -a lint_exts
+  read -r -a lint_exts <<<"${CGW_LINT_EXTENSIONS:-*.py}"
+  git diff --cached --name-only --diff-filter=ACMR -- "${lint_exts[@]}"
+}
+
+# cgw_path_is_diff_blind <path>
+#   0 (true) when the index entry for <path> carries assume-unchanged or
+#   skip-worktree -- `git diff` / `git status` report such paths clean no
+#   matter what's on disk, so their verdict can't be trusted as a second
+#   opinion. `git ls-files -v` tags: lowercase letter == assume-unchanged,
+#   'S' == skip-worktree (verified empirically; not documented in git-ls-files(1)
+#   beyond "lower case letter means assume-unchanged").
+cgw_path_is_diff_blind() {
+  local _tag
+  _tag=$(git ls-files -v -- "$1" 2>/dev/null | head -1 | cut -c1)
+  [[ "${_tag}" == [a-z] || "${_tag}" == "S" ]]
+}
+
+# cgw_paths_diverging_from_index
+#   Stdin: newline-separated staged paths to check. Stdout: the subset whose
+#   WORKING-TREE content differs from what is currently staged. Exists
+#   because the commit gate's lint/format checks read files from disk
+#   (working tree) while `git commit` records the index -- when the two
+#   differ, CGW can validate one thing and commit another, silently. Primary
+#   detection uses pure git plumbing (tool-agnostic): `git hash-object
+#   --path=<f> <f>` computes the blob `git add` would produce from a CLEAN
+#   file, and is immune to skip-worktree/assume-unchanged (unlike `git diff`,
+#   which reads the index and skips those paths). BUT hash-object never reads
+#   the index, while `git add` does: for text=auto/core.autocrlf, git add
+#   preserves CRLF verbatim once the index blob already contains CRLF
+#   (convert.c: has_crlf_in_index() -- cleared only by an explicit
+#   `git add --renormalize`). On such a file hash-object permanently
+#   disagrees with a byte-identical, `git add`-clean disk file. So a
+#   hash-object mismatch is arbitrated with an index-aware `git diff --quiet`
+#   before being reported -- except on diff-blind paths, where hash-object is
+#   the only honest signal. Returns 0 if any path diverges, 1 if none do.
+#   Fails closed: a staged path that's missing from the working tree, or
+#   whose blob can't be hashed, is reported as diverged rather than skipped --
+#   nothing validated that path's content, so a stale staged blob must not
+#   commit silently.
+#   Generalized from a lint-only predicate so every caller (the lint gate,
+#   commit_enhanced.sh's partial-stage snapshot, the [3.5] congruence guard)
+#   shares one arbitration instead of re-deriving the CRLF landmine handling.
+cgw_paths_diverging_from_index() {
+  local _f _staged _disk _any=1
+  while IFS= read -r _f; do
+    [[ -z "${_f}" ]] && continue
+    _staged=$(git rev-parse --quiet --verify ":${_f}" 2>/dev/null) || continue
+    if [[ ! -f "${_f}" ]]; then
+      printf '%s\n' "${_f}"
+      _any=0
+      continue
+    fi
+    _disk=$(git hash-object --path="${_f}" -- "${_f}" 2>/dev/null)
+    if [[ -z "${_disk}" || "${_staged}" != "${_disk}" ]]; then
+      # Second opinion: if the index blob already carries CRLF that `git add`
+      # preserves forever, hash-object's renormalized hash will never match --
+      # a phantom divergence no re-stage can clear. `git diff --quiet` uses the
+      # same index-aware conversion `git add` would, so trust it when it CAN
+      # see the path (not diff-blind) and hash-object did produce a hash.
+      if [[ -n "${_disk}" ]] && ! cgw_path_is_diff_blind "${_f}" &&
+        git diff --quiet -- "${_f}" 2>/dev/null; then
+        continue
+      fi
+      printf '%s\n' "${_f}"
+      _any=0
+    fi
+  done
+  return "${_any}"
+}
+
+# cgw_lint_files_diverging_from_index
+#   Stdout: newline-separated staged lint-eligible files whose WORKING-TREE
+#   content differs from what is currently staged. Thin wrapper over
+#   cgw_paths_diverging_from_index scoped to cgw_staged_files_for_lint (see
+#   that function's header for the divergence-detection rationale). Returns 0
+#   if any file diverges, 1 if none do.
+cgw_lint_files_diverging_from_index() {
+  cgw_staged_files_for_lint | cgw_paths_diverging_from_index
+}
+
+# cgw_staged_paths_diverging_from_index
+#   Stdout: ALL staged (add/copy/modify/rename) paths whose working-tree
+#   content differs from what is staged -- not just lint-eligible ones. Used
+#   by commit_enhanced.sh to snapshot which originally-staged files are
+#   PARTIALLY staged (the moral equivalent of `git add -p` picking one hunk),
+#   so an auto-fix re-stage can skip them instead of promoting the whole
+#   working-tree file -- and silently absorbing unstaged content -- into the
+#   index. Returns 0 if any path diverges, 1 if none do.
+cgw_staged_paths_diverging_from_index() {
+  git diff --cached --name-only --diff-filter=ACMR | cgw_paths_diverging_from_index
+}
+
+# cgw_validated_path_set [md_skipped]
+#   Stdout: newline-separated staged paths this run's code-quality gate
+#   actually validated -- staged CGW_LINT_EXTENSIONS files when a code
+#   checker is actually configured (CGW_LINT_CMD or CGW_FORMAT_CMD non-empty;
+#   extension match alone decides scope, same as cgw_staged_files_for_lint,
+#   so this still covers a format-only run with CGW_LINT_CMD unset) plus
+#   staged *.md when markdownlint genuinely runs. Markdown is EXCLUDED when
+#   any of: the caller passes md_skipped=1, CGW_SKIP_MD_LINT=1, or
+#   CGW_MARKDOWNLINT_CMD is empty.
+#
+#   The argument exists because commit_enhanced.sh's --skip-md-lint /
+#   --skip-lint set only a main() local -- an unexported, function-scoped
+#   decision this script-level function cannot see. Forwarding it explicitly
+#   follows the repo convention (fix_lint.sh's check_lint.sh flag
+#   forwarding): a runtime decision is never written back into a CGW_* config
+#   var. The CGW_SKIP_MD_LINT clause is load-bearing for callers with no flag
+#   parser -- do not drop it as "redundant" with the argument.
+#
+#   Omitting the argument defaults to 0 ("markdown ran"), deliberately the
+#   conservative direction: over-reporting divergence fails a commit closed
+#   (noisy but safe), under-reporting would commit unvalidated content
+#   silently.
+#
+#   Returns 0 unconditionally -- both call sites in commit_enhanced.sh pipe
+#   this under `set -o pipefail`, where a non-zero status is read as
+#   "diverged". Do not "simplify" the md clause to a trailing
+#   `[[ cond ]] && cgw_staged_files_for_md`; that returns 1 whenever markdown
+#   is skipped and poisons the pipeline.
+#
+#   Backs the [3.5] congruence guard: divergence outside this set is ordinary
+#   partial staging CGW never inspected, not a validation gap, so it must not
+#   be re-staged or reported.
+cgw_validated_path_set() {
+  local _md_skipped="${1:-0}"
+  if [[ -n "${CGW_LINT_CMD:-}" ]] || [[ -n "${CGW_FORMAT_CMD:-}" ]]; then
+    cgw_staged_files_for_lint
+  fi
+  if [[ "${_md_skipped}" != "1" ]] &&
+    [[ "${CGW_SKIP_MD_LINT:-0}" != "1" ]] &&
+    [[ -n "${CGW_MARKDOWNLINT_CMD:-}" ]]; then
+    cgw_staged_files_for_md
+  fi
+}
+
+# cgw_crlf_in_index_files
+#   Stdout: tracked paths whose INDEX blob is not in the normalized form the
+#   repo's current filters (.gitattributes eol=, core.autocrlf) would produce
+#   -- i.e. CRLF retained in the index where conversion is active. `git add`
+#   preserves that CRLF forever once it's in the index; only an explicit
+#   `git add --renormalize <path>` clears it. This is what makes such files a
+#   landmine for cgw_lint_files_diverging_from_index's arbiter above.
+#   Pre-filtered to `git ls-files --eol`'s "i/crlf" entries -- normalization
+#   only ever strips CR, so nothing else can differ; binary blobs compare
+#   equal to themselves and drop out for free. Advisory/read-only: used by
+#   repo_health.sh, never by the commit gate.
+cgw_crlf_in_index_files() {
+  local _rec _f _blob _norm
+  while IFS= read -r -d '' _rec; do
+    [[ "${_rec}" == i/crlf* ]] || continue
+    _f="${_rec#*$'\t'}"
+    _blob=$(git rev-parse --quiet --verify ":${_f}" 2>/dev/null) || continue
+    _norm=$(git cat-file blob "${_blob}" 2>/dev/null |
+      git hash-object --stdin --path="${_f}" 2>/dev/null)
+    [[ -n "${_norm}" && "${_norm}" != "${_blob}" ]] && printf '%s\n' "${_f}"
+  done < <(git ls-files --eol -z)
+}
+
+# cgw_run_typecheck [files...]
+#   Runs ${CGW_TYPECHECK_CMD} against the project (no files) or a given file
+#   list (strips trailing path token from CGW_TYPECHECK_CHECK_ARGS when files
+#   given). Honors CGW_SKIP_TYPECHECK=1 and empty CGW_TYPECHECK_CMD (returns 0,
+#   emits skip line). Reads ${logfile} from caller scope. Returns 0 = clean,
+#   1 = errors found.
+#
+#   Overrides CGW_TOOL_ERROR_REGEX (see run_tool_with_logging) because the
+#   default ruff-shaped `^[^:]+:[0-9]+:[0-9]+:` misses every supported
+#   typechecker's real output: mypy omits the column by default
+#   (`file.py:10: error:`), pyright indents and uses ` - error:`
+#   (`  /p/file.py:10:5 - error:`), and pyrefly's diagnostic line carries no
+#   file/line at all -- it prints `ERROR <msg> [<code>]` with the location on
+#   the *next* line (` --> file.py:10:8`). Verified against real 1.0.0/1.3.0
+#   pyrefly, mypy, and pyright output (2026-09-12); tsc's documented
+#   `file.ts(10,5): error TS2322:` form is covered by the first alternative.
+cgw_run_typecheck() {
+  if [[ "${CGW_SKIP_TYPECHECK:-0}" == "1" ]]; then
+    echo "  (typecheck skipped -- CGW_SKIP_TYPECHECK=1)"
+    return 0
+  fi
+  if [[ -z "${CGW_TYPECHECK_CMD:-}" ]]; then
+    echo "  (typecheck skipped -- CGW_TYPECHECK_CMD not set)"
+    return 0
+  fi
+  get_python_path 2>/dev/null || true
+  local tc_bin
+  tc_bin=$(cgw_resolve_lint_binary "${CGW_TYPECHECK_CMD}")
+  # shellcheck disable=SC2034  # read via dynamic scope by run_tool_with_logging
+  local CGW_TOOL_ERROR_REGEX='^[[:space:]]*[^[:space:]]+[:(][0-9]+[,:)][^[:space:]]*[[:space:]]*(-[[:space:]]+)?error|^ERROR[[:space:]]'
+  if [[ $# -gt 0 ]]; then
+    local stripped_args
+    stripped_args=$(cgw_strip_path_arg "${CGW_TYPECHECK_CHECK_ARGS-check}")
+    # shellcheck disable=SC2086  # Word splitting intentional: stripped_args contains multiple flags
+    run_tool_with_logging "TYPECHECK" "${logfile}" "${tc_bin}" ${stripped_args} "$@"
+  else
+    local filled_args
+    filled_args=$(cgw_fill_path_placeholder "${CGW_TYPECHECK_CHECK_ARGS-check}")
+    # shellcheck disable=SC2086  # Word splitting intentional: filled_args/CGW_TYPECHECK_EXCLUDES contain multiple flags
+    run_tool_with_logging "TYPECHECK" "${logfile}" "${tc_bin}" ${filled_args} ${CGW_TYPECHECK_EXCLUDES:-}
+  fi
+}
+
+# ── commit-message format module ───────────────────────────────────────────────
+# Validates commit messages against the conventional-commit prefix grammar.
+#
+# cgw_validate_commit_message <msg>
+#   Returns 0 if msg matches ^(<CGW_ALL_PREFIXES>): grammar, 1 otherwise.
+#   Pure predicate — no stdout/stderr output. Caller owns all user-facing
+#   messages and merge-commit skipping (parent-count check).
+
+cgw_validate_commit_message() {
+  local msg="$1"
+  # Conventional-commits prefix with an optional scope and optional breaking-
+  # change marker: "type:", "type(scope):", "type!:", "type(scope)!:". The
+  # bare "type:"-only pattern rejected valid scoped prefixes (fix(pyccsl):)
+  # with a generic warning, sending agents into the wrapper source to find
+  # this regex and then stripping the scope to get through.
+  echo "${msg}" | grep -qE "^(${CGW_ALL_PREFIXES})(\([A-Za-z0-9._/-]+\))?!?:"
+}
+
+# cgw_branch_matches_freeform_glob <branch>
+#   Returns 0 if <branch> matches any glob in CGW_FREEFORM_MESSAGE_BRANCHES.
+#   Pure predicate, no output. Empty branch or empty setting: always 1 -- an
+#   empty branch (e.g. a non-refs/heads/* push target) must never match a
+#   bare "*" glob.
+cgw_branch_matches_freeform_glob() {
+  local branch="$1" pat
+  [[ -z "${branch}" ]] && return 1
+  local -a _pats=()
+  read -r -a _pats <<<"${CGW_FREEFORM_MESSAGE_BRANCHES:-}" || true
+  for pat in "${_pats[@]+"${_pats[@]}"}"; do
+    # shellcheck disable=SC2053  # unquoted RHS is the point: glob match
+    [[ "${branch}" == ${pat} ]] && return 0
+  done
+  return 1
+}
+
+# cgw_branch_is_freeform <branch>
+#   Returns 0 if <branch> matches CGW_FREEFORM_MESSAGE_BRANCHES AND is not a
+#   guarded branch (CGW_SOURCE_BRANCH, CGW_TARGET_BRANCH, or any entry of
+#   CGW_PROTECTED_BRANCHES). Guarded branches are exempt-proof by design: an
+#   overbroad glob (e.g. "*") must never silently turn off conventional-
+#   format enforcement on the branches CGW's own policy protects. Pure
+#   predicate, no output -- callers print their own "pattern ignored" notice
+#   once they know which case applies.
+cgw_branch_is_freeform() {
+  local branch="$1" _guarded
+  cgw_branch_matches_freeform_glob "${branch}" || return 1
+
+  local -a _guarded_arr=()
+  read -r -a _guarded_arr <<<"${CGW_PROTECTED_BRANCHES:-}" || true
+  for _guarded in "${CGW_SOURCE_BRANCH:-}" "${CGW_TARGET_BRANCH:-}" "${_guarded_arr[@]+"${_guarded_arr[@]}"}"; do
+    [[ -n "${_guarded}" && "${branch}" == "${_guarded}" ]] && return 1
+  done
+  return 0
+}
+
+# cgw_branch_is_guarded <branch>
+#   Returns 0 if <branch> exactly matches CGW_SOURCE_BRANCH, CGW_TARGET_BRANCH,
+#   or any entry of CGW_PROTECTED_BRANCHES -- i.e. the branch a freeform glob
+#   is not allowed to exempt. Pure predicate, no output. Used by callers to
+#   decide whether to print the "pattern ignored" notice.
+cgw_branch_is_guarded() {
+  local branch="$1" _guarded
+  local -a _guarded_arr=()
+  read -r -a _guarded_arr <<<"${CGW_PROTECTED_BRANCHES:-}" || true
+  for _guarded in "${CGW_SOURCE_BRANCH:-}" "${CGW_TARGET_BRANCH:-}" "${_guarded_arr[@]+"${_guarded_arr[@]}"}"; do
+    [[ -n "${_guarded}" && "${branch}" == "${_guarded}" ]] && return 0
+  done
+  return 1
+}
+
+# cgw_freeform_message_check <msg>
+#   Delegated gate for a freeform branch's commit message, e.g. the target
+#   project's own commit-msg hook. Returns 0 (nothing to enforce) when
+#   CGW_FREEFORM_MESSAGE_CHECK is unset. Otherwise writes <msg> to a temp
+#   file and runs CGW_FREEFORM_MESSAGE_CHECK with that file as $1; returns
+#   the command's exit status. A relative command resolves against
+#   PROJECT_ROOT. Fails closed (returns 1) if the command cannot be found or
+#   is not executable -- a silently-skipped delegated gate is worse than a
+#   blocked commit. The command's own stdout/stderr passes through; this
+#   function prints nothing itself.
+cgw_freeform_message_check() {
+  local msg="$1"
+  [[ -z "${CGW_FREEFORM_MESSAGE_CHECK:-}" ]] && return 0
+
+  local cmd="${CGW_FREEFORM_MESSAGE_CHECK}"
+  if [[ "${cmd}" != /* ]]; then
+    cmd="${PROJECT_ROOT}/${cmd}"
+  fi
+  if [[ ! -x "${cmd}" ]]; then
+    err "CGW_FREEFORM_MESSAGE_CHECK is set to '${CGW_FREEFORM_MESSAGE_CHECK}' but '${cmd}' is not an executable file"
+    return 1
+  fi
+
+  local msgfile
+  msgfile="$(mktemp)" || return 1
+  printf '%s\n' "${msg}" >"${msgfile}"
+  "${cmd}" "${msgfile}"
+  local status=$?
+  rm -f "${msgfile}"
+  return ${status}
+}
+
+# ── interactive prompts module ─────────────────────────────────────────────────
+# Unified confirmation prompt. Centralises all yes/no and literal-token
+# prompts so non-interactive policy, grammar, and default-value handling
+# are consistent across every script.
+#
+# cgw_confirm <prompt> [--default yes|no] [--literal-token TOKEN] [--non-interactive abort|accept|deny]
+#   Returns 0 = confirmed (proceed), 1 = denied (skip).
+#   Exits 1  = non-interactive + abort policy (fatal — terminates the script).
+#
+#   --default yes|no         Empty or unrecognized input maps to yes/no; omit for no default.
+#   --literal-token TOKEN    Require exact uppercase token (e.g. FORCE, ROLLBACK). Case-sensitive.
+#   --non-interactive <pol>  Policy when CGW_NON_INTERACTIVE=1 (callers set from --non-interactive flag
+#                            or [[ ! -t 0 ]] check):
+#                              abort  (default) — exit 1 with error message
+#                              accept            — return 0 silently
+#                              deny              — return 1 silently
+#
+#   Standard mode accepts case-insensitive y/yes (→ 0) and n/no (→ 1).
+#   Unrecognized input falls back to --default (deny if no default set).
+
+cgw_confirm() {
+  local prompt="$1"
+  shift
+  local default=""
+  local literal_token=""
+  local ni_policy="abort"
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --default)
+        default="$2"
+        shift 2
+        ;;
+      --literal-token)
+        literal_token="$2"
+        shift 2
+        ;;
+      --non-interactive)
+        ni_policy="$2"
+        shift 2
+        ;;
+      *)
+        err "cgw_confirm: unknown option: $1"
+        return 1
+        ;;
+    esac
+  done
+
+  # Non-interactive: env var (set by callers from --non-interactive flag or [[ ! -t 0 ]] check)
+  if [[ "${CGW_NON_INTERACTIVE:-0}" == "1" ]]; then
+    case "${ni_policy}" in
+      accept) return 0 ;;
+      deny) return 1 ;;
+      abort)
+        echo "[!] non-interactive: '${prompt}' requires confirmation — aborting" >&2
+        exit 1
+        ;;
+    esac
+  fi
+
+  # Interactive prompt
+  if [[ -n "${literal_token}" ]]; then
+    read -r -p "${prompt} " response
+    [[ "${response}" == "${literal_token}" ]] && return 0 || return 1
+  else
+    local hint
+    case "${default}" in
+      yes) hint=" [yes]" ;;
+      no) hint=" [no]" ;;
+      *) hint="" ;;
+    esac
+    read -r -p "${prompt} (yes/no)${hint}: " response
+    if [[ -z "${response}" ]]; then
+      [[ "${default}" == "yes" ]] && return 0 || return 1
+    fi
+    case "${response}" in
+      [Yy] | [Yy][Ee][Ss]) return 0 ;;
+      [Nn] | [Nn][Oo]) return 1 ;;
+      # Unrecognized input falls back to default (deny if no default set).
+      *) [[ "${default}" == "yes" ]] && return 0 || return 1 ;;
+    esac
+  fi
+}

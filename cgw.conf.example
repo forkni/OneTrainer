@@ -1,0 +1,396 @@
+# cgw.conf.example — All configuration options for claude-git-workflow
+#
+# Copy to .cgw.conf in your project root, or run:
+#   ./scripts/git/configure.sh
+# to auto-generate it from project scanning.
+#
+# .cgw.conf is git-ignored by default (configure.sh adds it to .gitignore).
+# Priority: environment variables > .cgw.conf > built-in defaults
+
+# ============================================================================
+# BRANCH NAMES
+# ============================================================================
+
+# Source branch — where development happens; merged into target
+# Default: development
+CGW_SOURCE_BRANCH="development"
+
+# Target branch — stable/production branch; receives merges
+# Default: main
+CGW_TARGET_BRANCH="main"
+
+# Remote name used for fetch, push, and remote-tracking-ref resolution.
+# Override with CGW_REMOTE=upstream for fork workflows.
+# Default: origin
+CGW_REMOTE="origin"
+
+# ============================================================================
+# LOCAL-ONLY FILES
+# ============================================================================
+# Space-separated list of files/directories that must NEVER be committed.
+# Entries ending with / are treated as directory prefixes.
+# commit_enhanced.sh will auto-unstage these before committing.
+# configure.sh also bakes this list into the pre-commit hook.
+#
+# Default: CLAUDE.md MEMORY.md .claude/ logs/
+# (configure.sh auto-detects project-specific additions like .env files)
+
+CGW_LOCAL_FILES="CLAUDE.md MEMORY.md .claude/ logs/"
+
+# Specific files exempted from CGW_LOCAL_FILES protection (space-separated exact paths).
+# Use when a tracked file lives inside a blocked directory.
+# Example: .claude/settings.json is a shared project config inside the blocked .claude/ dir.
+# CGW_LOCAL_FILES_EXEMPT=".claude/settings.json"
+CGW_LOCAL_FILES_EXEMPT=""
+
+# ============================================================================
+# COMMIT MESSAGE PREFIXES
+# ============================================================================
+# Standard conventional commit prefixes are always included:
+#   feat fix docs chore test refactor style perf
+#
+# Add project-specific extras here (pipe-separated):
+# CGW_EXTRA_PREFIXES="cuda|tensorrt"    # GPU/ML project
+# CGW_EXTRA_PREFIXES="android|ios"      # Mobile project
+# CGW_EXTRA_PREFIXES="infra|deploy"     # DevOps project
+
+CGW_EXTRA_PREFIXES=""
+
+# ============================================================================
+# FREEFORM-MESSAGE BRANCHES
+# ============================================================================
+# Branches whose commit MESSAGE FORMAT is not checked (conventional-commit
+# grammar, subject-length hard cap). Space-separated bash glob patterns.
+# Everything else still applies: lint, local-only files, protected branches.
+# Use for branches that target another project with its own commit-message
+# style, e.g. an upstream PR branch.
+#
+# Guard-proof: the source, target, and any CGW_PROTECTED_BRANCHES entry can
+# never be exempted, even by a glob as broad as "*" -- a matching-but-guarded
+# branch prints a notice and falls back to the normal format check.
+#
+# Opt-in, no default. On an ALREADY-INSTALLED project, cgw-batch-install.cmd
+# never touches .cgw.conf, so adding this to cgw.conf.example does not turn
+# it on anywhere -- add these two lines to that project's .cgw.conf by hand,
+# or run configure.sh --reconfigure there.
+# CGW_FREEFORM_MESSAGE_BRANCHES="up/* upstream/*"
+CGW_FREEFORM_MESSAGE_BRANCHES=""
+
+# Optional: run this command against the message on a freeform branch instead
+# of skipping validation entirely, e.g. the target project's own commit-msg
+# hook. Receives the message as a file path in $1. Relative paths resolve
+# against the project root.
+# CGW_FREEFORM_MESSAGE_CHECK="hooks/commit-msg"
+CGW_FREEFORM_MESSAGE_CHECK=""
+
+# ============================================================================
+# LINT CONFIGURATION
+# ============================================================================
+# Set CGW_LINT_CMD="" to disable lint checks entirely.
+#
+# PATH CONVENTION: use the "{files}" token where the scan target goes. In
+# scoped/modified-only mode it is replaced by the file list; in whole-repo mode
+# it expands to ".". A legacy standalone "." (as shown in the examples below)
+# still works and is treated as the scan target.
+#
+# ── Python / ruff (default) ──────────────────────────────
+CGW_LINT_CMD="ruff"
+CGW_LINT_CHECK_ARGS="check {files}"
+CGW_LINT_FIX_ARGS="check --fix {files}"
+CGW_LINT_EXCLUDES="--extend-exclude logs --extend-exclude .venv"
+CGW_FORMAT_CMD="ruff"
+CGW_FORMAT_CHECK_ARGS="format --check {files}"
+CGW_FORMAT_FIX_ARGS="format {files}"
+CGW_FORMAT_EXCLUDES="--exclude logs --exclude .venv"
+#
+# ── JavaScript / ESLint + Prettier ──────────────────────
+# CGW_LINT_CMD="eslint"
+# CGW_LINT_CHECK_ARGS="."
+# CGW_LINT_FIX_ARGS=". --fix"
+# CGW_LINT_EXCLUDES=""
+# CGW_FORMAT_CMD="prettier"
+# CGW_FORMAT_CHECK_ARGS="--check ."
+# CGW_FORMAT_FIX_ARGS="--write ."
+# CGW_FORMAT_EXCLUDES=""
+#
+# ── Go / golangci-lint ───────────────────────────────────
+# CGW_LINT_CMD="golangci-lint"
+# CGW_LINT_CHECK_ARGS="run"
+# CGW_LINT_FIX_ARGS="run --fix"
+# CGW_LINT_EXCLUDES=""
+# CGW_FORMAT_CMD="gofmt"
+# CGW_FORMAT_CHECK_ARGS="-l ."
+# CGW_FORMAT_FIX_ARGS="-w ."
+# CGW_FORMAT_EXCLUDES=""
+#
+# ── C/C++ / clang-tidy + clang-format ──────────────────
+# CGW_LINT_CMD="clang-tidy"
+# CGW_LINT_CHECK_ARGS="-p build"   # path to dir containing compile_commands.json
+# CGW_LINT_FIX_ARGS="-p build --fix"
+# CGW_LINT_EXCLUDES=""
+# CGW_FORMAT_CMD="clang-format"
+# CGW_FORMAT_CHECK_ARGS="--dry-run --Werror -r ."
+# CGW_FORMAT_FIX_ARGS="-i -r ."
+# CGW_FORMAT_EXCLUDES=""
+#
+# ── C/C++ / cppcheck + clang-format ────────────────────
+# CGW_LINT_CMD="cppcheck"
+# CGW_LINT_CHECK_ARGS="--enable=all --error-exitcode=1 ."
+# CGW_LINT_FIX_ARGS="--enable=all --error-exitcode=1 ."  # no auto-fix; same as check
+# CGW_LINT_EXCLUDES=""
+# CGW_FORMAT_CMD="clang-format"
+# CGW_FORMAT_CHECK_ARGS="--dry-run --Werror -r ."
+# CGW_FORMAT_FIX_ARGS="-i -r ."
+# CGW_FORMAT_EXCLUDES=""
+#
+# ── No linter ───────────────────────────────────────────
+# CGW_LINT_CMD=""
+# CGW_FORMAT_CMD=""
+
+# ============================================================================
+# TYPECHECK CONFIGURATION
+# ============================================================================
+# Typecheck step. Advisory in the pre-commit hook; BLOCKING in check_lint.sh
+# and therefore in push_validated.sh -- setting CGW_TYPECHECK_CMD gates your
+# pushes. Set CGW_TYPECHECK_CMD="" to disable (default).
+#
+# ── Python / pyrefly (recommended for new Python projects) ───────────────────
+# CGW_TYPECHECK_CMD="pyrefly"
+# CGW_TYPECHECK_CHECK_ARGS="check"
+# CGW_TYPECHECK_EXCLUDES=""
+#
+# ── Python / pyright ─────────────────────────────────────────────────────────
+# CGW_TYPECHECK_CMD="pyright"
+# CGW_TYPECHECK_CHECK_ARGS=""
+# CGW_TYPECHECK_EXCLUDES=""
+#
+# ── Python / mypy ────────────────────────────────────────────────────────────
+# CGW_TYPECHECK_CMD="mypy"
+# CGW_TYPECHECK_CHECK_ARGS="."
+# CGW_TYPECHECK_EXCLUDES=""
+#
+# ── TypeScript / tsc ─────────────────────────────────────────────────────────
+# CGW_TYPECHECK_CMD="tsc"
+# CGW_TYPECHECK_CHECK_ARGS="--noEmit"
+# CGW_TYPECHECK_EXCLUDES=""
+#
+# Skip at runtime with CGW_SKIP_TYPECHECK=1, or --skip-typecheck on
+# check_lint.sh / push_validated.sh.
+
+CGW_TYPECHECK_CMD=""
+CGW_TYPECHECK_CHECK_ARGS="check"
+CGW_TYPECHECK_EXCLUDES=""
+
+# ============================================================================
+# MODIFIED-ONLY LINT FILE EXTENSIONS (check_lint.sh, fix_lint.sh)
+# ============================================================================
+# Space-separated glob patterns controlling which files are matched in
+# --modified-only mode. Override for non-Python projects.
+#
+# Default (Python):
+CGW_LINT_EXTENSIONS="*.py"
+#
+# JavaScript / TypeScript:
+# CGW_LINT_EXTENSIONS="*.js *.ts *.jsx *.tsx"
+#
+# Go:
+# CGW_LINT_EXTENSIONS="*.go"
+#
+# C / C++:
+# CGW_LINT_EXTENSIONS="*.c *.cpp *.h *.hpp"
+
+# ============================================================================
+# STAGED-BLOB CONGRUENCE GUARD (commit_enhanced.sh)
+# ============================================================================
+# commit_enhanced.sh's lint/format checks validate the WORKING TREE, but
+# `git commit` records the INDEX. If a staged file's blob differs from what's
+# on disk (e.g. a partial `git add -p`, or a formatter that touched disk
+# without re-staging), the guard fails the commit closed rather than silently
+# committing content that was never validated.
+#
+# Bulk (--all) and --only commits are unaffected -- both stage whole files,
+# so the guard re-stages and re-verifies automatically. This setting only
+# matters for a genuine --staged-only commit where index != working tree is
+# deliberate.
+#
+# Scope: the guard only inspects files this run actually validated (staged
+# lint-extension files when a code checker is configured, plus staged *.md
+# when markdownlint genuinely ran). --skip-md-lint, or leaving both
+# CGW_LINT_CMD and CGW_FORMAT_CMD unset, removes that file class from scope
+# for the run -- a partial stage there commits exactly the staged hunk.
+#
+# 0 = abort on divergence (default, safe). 1 = commit the staged blob as-is
+# with a warning.
+CGW_ALLOW_STAGED_DIVERGENCE="0"
+
+# ============================================================================
+# COMMIT SUBJECT LENGTH (commit_enhanced.sh)
+# ============================================================================
+# Pro Git's "Commit Guidelines" recommend keeping the subject line (the part
+# after the "type:" prefix) to ~50 chars; git log --oneline and the GitHub UI
+# commonly truncate around 72.
+#
+# Below CGW_COMMIT_SUBJECT_SOFT_LEN: silent.
+# Between soft and hard length: non-blocking advisory tip.
+# Past CGW_COMMIT_SUBJECT_HARD_LEN: blocks the commit via a confirmation
+# prompt (non-interactive mode aborts) when CGW_ENFORCE_SUBJECT_LENGTH=1.
+#
+# Set CGW_ENFORCE_SUBJECT_LENGTH="0" to make the hard cap advisory-only too.
+CGW_COMMIT_SUBJECT_SOFT_LEN="50"
+CGW_COMMIT_SUBJECT_HARD_LEN="72"
+CGW_ENFORCE_SUBJECT_LENGTH="1"
+
+# ============================================================================
+# MERGE STRATEGY OPTIONS (merge_with_validation.sh)
+# ============================================================================
+# CGW_MERGE_CONFLICT_STYLE: Set to "merge" for git's default two-way markers
+# (same as leaving this empty), "diff3" to show the common-ancestor version
+# in conflict markers (recommended -- makes manual resolution easier), or
+# "zdiff3" (git >= 2.35) for the same view with non-conflicting hunks
+# collapsed. Falls back to "diff3" with a warning if the installed git is
+# older than 2.35. Empty = git default two-way markers (same as "merge").
+CGW_MERGE_CONFLICT_STYLE=""
+# CGW_MERGE_CONFLICT_STYLE="zdiff3"
+
+# CGW_MERGE_IGNORE_WHITESPACE: Set to "1" to add -Xignore-space-change to merge.
+# Prevents false conflicts from whitespace-only differences (tabs/spaces, line endings).
+CGW_MERGE_IGNORE_WHITESPACE="0"
+
+# ============================================================================
+# MARKDOWN LINT (commit_enhanced.sh, check_lint.sh, push_validated.sh)
+# ============================================================================
+# Optional markdown linting step run in addition to CGW_LINT_CMD.
+# Set CGW_MARKDOWNLINT_CMD="" to disable (default).
+#
+# CGW_MARKDOWNLINT_ARGS holds flags/exclusions ONLY (never a scan-target glob).
+# CGW_MARKDOWNLINT_PATHS is the default scan target, used only in audit mode
+# (check_lint.sh / push_validated.sh). The commit gate scopes the check to the
+# staged *.md files, so an unrelated markdown violation can't block a code commit.
+#
+# Example (markdownlint-cli2):
+# CGW_MARKDOWNLINT_CMD="markdownlint-cli2"
+# CGW_MARKDOWNLINT_ARGS="!CLAUDE.md !MEMORY.md"
+# CGW_MARKDOWNLINT_PATHS="**/*.md"
+#
+# MIGRATION: the old single-var shape put the glob in ARGS
+# ("**/*.md !CLAUDE.md !MEMORY.md"). Move the "**/*.md" glob to
+# CGW_MARKDOWNLINT_PATHS and keep only exclusions in CGW_MARKDOWNLINT_ARGS.
+#
+# The !CLAUDE.md !MEMORY.md default below is belt-and-suspenders: configure.sh
+# also installs .markdownlint-cli2.jsonc ("gitignore": ".gitignore"), which
+# makes markdownlint-cli2 skip any gitignored .md file automatically -- no ARGS
+# edit needed when a project adds a new local-only markdown file.
+#
+# Skip at runtime with --skip-md-lint flag or CGW_SKIP_MD_LINT=1.
+
+CGW_MARKDOWNLINT_CMD=""
+CGW_MARKDOWNLINT_ARGS="!CLAUDE.md !MEMORY.md"
+CGW_MARKDOWNLINT_PATHS="**/*.md"
+
+# ============================================================================
+# DOCS CI VALIDATION (merge_with_validation.sh)
+# ============================================================================
+# Extended regex (bash ERE) matching allowed doc filenames in docs/.
+# Empty string = skip docs validation entirely (default).
+# Only needed if you have strict CI rules about what docs can land on target.
+#
+# Example:
+# CGW_DOCS_PATTERN="^(README\.md|.*_GUIDE\.md|.*_REFERENCE\.md|CHANGELOG\.md)$"
+
+CGW_DOCS_PATTERN=""
+
+# ============================================================================
+# DEV-ONLY FILE WARNINGS (cherry_pick_commits.sh)
+# ============================================================================
+# Space-separated paths. If a cherry-picked commit touches these files,
+# you'll get a warning (or abort in non-interactive mode).
+# Empty = no check (default).
+#
+# Example:
+# CGW_DEV_ONLY_FILES="tests/ pytest.ini docs/TESTING_GUIDE.md"
+
+CGW_DEV_ONLY_FILES=""
+
+# Local-only file guard for merge / cherry-pick.
+# A merge or cherry-pick that would carry a CGW_LOCAL_FILES entry (CLAUDE.md,
+# MEMORY.md, .claude/, logs/, ...) into shared history is aborted in
+# non-interactive mode (interactive prompts). Set to 1 to allow it.
+CGW_ALLOW_LOCAL_FILES_IN_MERGE=0
+
+# ============================================================================
+# TESTS DIRECTORY CLEANUP (merge_with_validation.sh)
+# ============================================================================
+# When 1: removes tests/ from target branch if "tests/" is in .gitignore.
+# When 0: leaves tests/ alone (default — most projects want tests everywhere).
+
+CGW_CLEANUP_TESTS="0"
+
+# ============================================================================
+# FORCE-PUSH PROTECTION (push_validated.sh)
+# ============================================================================
+# Space-separated branch names that require --force flag + manual confirmation
+# for force-push. Defaults to CGW_TARGET_BRANCH if not set.
+
+# CGW_PROTECTED_BRANCHES="main staging"
+
+# ============================================================================
+# MERGE MODE
+# ============================================================================
+# Controls how changes are promoted from source to target branch.
+#
+# "direct" (default): merge locally via merge_with_validation.sh.
+#                     Fast, no PR required.
+#
+# "pr":               create a GitHub PR via create_pr.sh.
+#                     Triggers Charlie CI auto-review + GitHub Actions.
+#                     Requires: gh CLI installed + authenticated.
+#
+# Use "pr" to enable CI agent review before merging to main.
+#
+CGW_MERGE_MODE="direct"
+# CGW_MERGE_MODE="pr"
+
+# ============================================================================
+# CI VERIFICATION GATE (agent procedure — see skill/references/ci-verification.md)
+# ============================================================================
+# Not read by any scripts/git/*.sh script. These are agent-facing conventions:
+# after every push CGW performs, the agent subscribes to the CI runs it
+# triggered, waits for a terminal verdict, and fixes-and-retries until green
+# (or the round budget below is exhausted) before reporting the push done.
+# Requires the gh CLI, installed + authenticated, and a GitHub remote; silently
+# no-ops otherwise.
+#
+# Set to 0 to disable the gate entirely (push completes as soon as git accepts it).
+CGW_CI_VERIFY="1"
+
+# Max seconds to wait for all resolved runs to reach a terminal state.
+CGW_CI_TIMEOUT_SECONDS="900"
+
+# Seconds between `gh run watch` / poll refreshes.
+CGW_CI_POLL_INTERVAL="15"
+
+# Fix -> push -> re-watch attempts before stopping and handing back to the user.
+CGW_CI_MAX_FIX_ROUNDS="3"
+
+# Space-separated workflow-name allow-list to judge (e.g. "Branch Protection").
+# Empty = judge every workflow run the push triggered (default).
+CGW_CI_REQUIRED_WORKFLOWS=""
+
+# ── Stale index.lock auto-recovery ────────────────────────────────────────────
+# CGW scripts detect and remove abandoned .git/index.lock files left by crashed
+# or killed git processes (the most common Claude Code failure mode).
+#
+# Auto-remove is refused when a rebase/merge/cherry-pick/revert/bisect operation
+# is currently in progress (detected via state dirs/sentinels in .git/).
+#
+# Set to 0 to disable auto-removal; the script will warn and exit instead.
+# CGW_AUTO_REMOVE_INDEX_LOCK=1
+#
+# Locks older than this many seconds are treated as stale and removed.
+# Increase (e.g. 300) if you regularly pause git rebase -i in an editor for
+# more than the default 30 seconds.
+# CGW_INDEX_LOCK_MAX_AGE_SECONDS=30
+#
+# When a fresh lock is present, poll up to this many seconds for it to clear
+# before escalating. Set to 0 to skip waiting.
+# CGW_INDEX_LOCK_WAIT_SECONDS=10

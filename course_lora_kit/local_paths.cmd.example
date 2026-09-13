@@ -1,0 +1,7 @@
+@echo off
+rem Copy this file to local_paths.cmd (gitignored) and set your own folders. Set once;
+rem every cmd wrapper reads it through _env.cmd. 00_verify_setup.cmd writes it for you
+rem when it is missing. Use `if not defined` so a variable you export yourself still wins.
+if not defined LORA_ROOT set "LORA_ROOT=D:\my_lora"
+rem Optional: where 06_stage_pick.cmd copies the pick when you press Enter at its prompt.
+rem if not defined COMFY_LORAS_DIR set "COMFY_LORAS_DIR=D:\ComfyUI\models\loras"

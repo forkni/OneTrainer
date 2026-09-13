@@ -1,0 +1,5 @@
+# run artifacts from the validation scripts (each defaults --output-dir to
+# outputs/<script-name>/ next to the script)
+scripts/outputs/
+# your machine-specific folders (LORA_ROOT, COMFY_LORAS_DIR); see local_paths.cmd.example
+local_paths.cmd
