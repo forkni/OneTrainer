@@ -1,5 +1,11 @@
 # OneTrainer
 
+> **Fork notice.** This is a modified version of [Nerogar/OneTrainer](https://github.com/Nerogar/OneTrainer),
+> modified by Alexander Korneev since 2026-08-16. The changes, mainly the additions in
+> `course_lora_kit/`, are listed with dates in [`CHANGES.md`](CHANGES.md). Like upstream, this
+> fork is licensed under the GNU Affero General Public License v3.0 (see [`LICENSE.txt`](LICENSE.txt)),
+> and it is provided without any warranty.
+
 OneTrainer is a one-stop solution for all your Diffusion training needs.
 
 <a href="https://discord.gg/KwgcQd5scF"><img src="https://discord.com/api/guilds/1102003518203756564/widget.png" alt="OneTrainer Discord"/></a><br>
